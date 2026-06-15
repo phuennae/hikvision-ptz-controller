@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CCTV MONITORING</title>
+    <script src="https://cdn.jsdelivr.net/gh/phoboslab/jsmpeg@master/jsmpeg.min.js"></script>
+    <style>
+        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; background-color: #f4f7f6; margin: 0; padding-top: 20px; }
+        .dashboard { background: white; padding: 20px; border-radius: 15px; box-shadow: 0 5px 15px rgba(0,0,0,0.1); text-align: center; }
+        /* กรอบสำหรับแสดงวิดีโอ */
+        #video-canvas { width: 640px; height: 360px; background-color: #000; border-radius: 8px; margin-bottom: 20px; display: block; }
+        
+        .d-pad { display: grid; grid-template-columns: repeat(3, 60px); grid-template-rows: repeat(3, 60px); gap: 10px; justify-content: center; margin: 0 auto; }
+        .btn { border: 2px solid #007bff; background: white; font-size: 24px; border-radius: 10px; cursor: pointer; color: #007bff; transition: 0.1s; user-select: none; }
+        .btn:active { background: #007bff; color: white; transform: scale(0.95); }
+        .btn.up { grid-column: 2; grid-row: 1; }
+        .btn.left { grid-column: 1; grid-row: 2; }
+        .btn.stop { grid-column: 2; grid-row: 2; font-size: 14px; font-weight: bold; background: #ff4d4f; color: white; border: none; }
+        .btn.stop:active { background: #d9363e; }
+        .btn.right { grid-column: 3; grid-row: 2; }
+        .btn.down { grid-column: 2; grid-row: 3; }
+        #status { color: #666; font-size: 14px; margin-top: 15px; }
+
+        #video-canvas { 
+            width: 640px; 
+            height: 360px; 
+            background-color: #000; 
+            border-radius: 8px; 
+            margin-bottom: 20px; 
+            display: block; 
+            transform: rotate(180deg); /* เพิ่มบรรทัดนี้เพื่อกลับหัววิดีโอ */
+        }
+    </style>
+</head>
+<body>
+
+    <div class="dashboard">
+        <h2>📷 CCTV MONITORING</h2>
+        <canvas id="video-canvas"></canvas>
+        
+        <div class="d-pad">
+            <button class="btn up" onmousedown="sendCommand('up')" onmouseup="sendCommand('stop')">⬆️</button>
+            <button class="btn left" onmousedown="sendCommand('left')" onmouseup="sendCommand('stop')">⬅️</button>
+            <button class="btn stop" onclick="sendCommand('stop')">STOP</button>
+            <button class="btn right" onmousedown="sendCommand('right')" onmouseup="sendCommand('stop')">➡️</button>
+            <button class="btn down" onmousedown="sendCommand('down')" onmouseup="sendCommand('stop')">⬇️</button>
+        </div>
+        <p id="status">ระบบพร้อมใช้งาน</p>
+    </div>
+
+    <script>
+        // โค้ดสำหรับรับสตรีมภาพมาวาดลงบน Canvas
+        var canvas = document.getElementById('video-canvas');
+        // เชื่อมต่อไปยัง WebSocket พอร์ต 9999 ที่เราตั้งไว้ใน Backend
+        var url = 'ws://' + document.location.hostname + ':9999/'; 
+        var player = new JSMpeg.Player(url, { canvas: canvas, autoplay: true });
+
+        // ฟังก์ชันสั่ง PTZ
+        function sendCommand(cmd) {
+            document.getElementById('status').innerText = 'สถานะ: ' + cmd.toUpperCase();
+            fetch('/api/ptz', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ command: cmd })
+            }).catch(e => console.error(e));
+        }
+    </script>
+</body>
+</html>
