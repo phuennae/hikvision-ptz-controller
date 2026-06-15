@@ -65,6 +65,45 @@
                 body: JSON.stringify({ command: cmd })
             }).catch(e => console.error(e));
         }
+
+        // --- เพิ่มระบบควบคุมผ่าน Keyboard ---
+
+        // ตัวแปรสำหรับเช็คสถานะว่าตอนนี้กำลังกดปุ่มค้างอยู่หรือไม่ (ป้องกันไม่ให้เว็บส่งคำสั่งรัวเกินไป)
+        let isKeyPressed = false;
+
+        // 1. ตรวจจับตอนกดปุ่มคีย์บอร์ดลงไป (KeyDown)
+        window.addEventListener('keydown', function(event) {
+            // ถ้ากำลังกดปุ่มค้างอยู่แล้ว ให้ข้ามไปเลย ไม่ต้องส่งคำสั่งซ้ำ
+            if (isKeyPressed) return;
+
+            switch(event.key) {
+                case 'ArrowUp':
+                    isKeyPressed = true;
+                    sendCommand('up');
+                    break;
+                case 'ArrowDown':
+                    isKeyPressed = true;
+                    sendCommand('down');
+                    break;
+                case 'ArrowLeft':
+                    isKeyPressed = true;
+                    sendCommand('left');
+                    break;
+                case 'ArrowRight':
+                    isKeyPressed = true;
+                    sendCommand('right');
+                    break;
+            }
+        });
+
+// 2. ตรวจจับตอนปล่อยนิ้วออกจากปุ่มคีย์บอร์ด (KeyUp)
+window.addEventListener('keyup', function(event) {
+    // เช็คว่าปุ่มที่ปล่อย คือปุ่มลูกศรทิศทางหรือไม่
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
+        isKeyPressed = false; // รีเซ็ตสถานะตัวแปรค้าง
+        sendCommand('stop');   // สั่งให้กล้องหยุดหมุนทันทีเมื่อปล่อยปุ่ม
+    }
+});
     </script>
 </body>
 </html>
