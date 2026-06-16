@@ -1,36 +1,51 @@
-# Hikvision Smart Pole Controller 📷
+Hikvision PTZ Controller Web App
+โปรเจกต์เว็บแอปพลิเคชันสำหรับควบคุมกล้องวงจรปิด Hikvision และดูภาพสด/ย้อนหลังผ่านเว็บเบราว์เซอร์ พร้อมระบบ Proxy สำหรับสตรีมมิ่งที่เสถียร
 
-Web-based application สำหรับควบคุมกล้องวงจรปิด Hikvision (PTZ) และดูภาพสตรีมมิ่งสด (Live View) รวมถึงดึงภาพย้อนหลัง (Playback) จาก MicroSD Card ผ่านหน้าเว็บโดยตรง
+🚀 Features
+PTZ Control: ควบคุมการหมุนกล้อง (ขึ้น/ลง/ซ้าย/ขวา) ผ่านหน้าเว็บ
 
-## 🛠️ สิ่งที่ต้องติดตั้งในเครื่อง (Prerequisites)
-ก่อนที่จะรันโปรเจกต์นี้ เครื่องคอมพิวเตอร์ / Server ต้องติดตั้งโปรแกรมพื้นฐานดังต่อไปนี้:
-1. **Node.js** (เวอร์ชัน 14 ขึ้นไป) - สำหรับรันเซิร์ฟเวอร์
-2. **Git** - สำหรับ Clone โค้ด
-3. **FFmpeg** - **(สำคัญมาก!)** ต้องติดตั้งและเซ็ตค่า `Environment Variables (Path)` ให้เรียบร้อย เพราะระบบต้องใช้ FFmpeg ในการแปลงสัญญาณ RTSP เป็น WebSocket
+Live View: สตรีมภาพสดผ่าน WebSocket
 
-## 📦 วิธีการติดตั้ง (Installation)
+Playback: ดูภาพย้อนหลังจาก SD Card ของกล้อง พร้อมปรับความเร็วในการเล่นได้
 
-1. Clone โปรเจกต์ลงมาที่เครื่อง
-```bash
-git clone [https://github.com/phuennae/hikvision-ptz-controller.git](https://github.com/phuennae/hikvision-ptz-controller.git)
+Headless Ready: รองรับการรันบน Server/Background Process ด้วย PM2
+
+Ngrok Integration: ทะลุเน็ตบริษัท/เน็ตบ้านเพื่อดูผ่าน 5G ได้จากทุกที่
+
+🛠️ Prerequisites
+Node.js (แนะนำ v18+)
+
+FFmpeg (ต้องติดตั้งในเครื่องและ Add to PATH)
+
+PM2 (สำหรับจัดการ Process: npm install -g pm2)
+
+⚙️ Installation & Setup
+Clone project & Install dependencies:
+
+Bash
+git clone [your-repo-url]
 cd hikvision-ptz-controller
-
-2. ติดตั้ง Dependencies (Library ที่จำเป็น)
 npm install
+Run Server:
+ใช้ PM2 เพื่อให้เซิร์ฟเวอร์ทำงานตลอดเวลา:
 
-node server.js
+Bash
+pm2 start server.js --name hikvision-web
+Expose to Public (Using Ngrok):
+เพื่อให้เข้าถึงได้จากภายนอก:
 
-⚙️ การตั้งค่าเพิ่มเติม (Configuration)
-หากมีการเปลี่ยนตัวกล้อง IP Camera หรือเปลี่ยนรหัสผ่าน ให้เข้าไปแก้ไขค่าในไฟล์ server.js:
+Bash
+# ทำครั้งแรกเพื่อลงทะเบียน Authtoken
+.\ngrok.exe config add-authtoken <YOUR_NGROK_TOKEN>
 
-rtspUrl สำหรับ Live View
+# สั่งเปิดท่อ
+.\ngrok.exe http 3000
+📝 Configuration
+แก้ไข IP กล้อง, Username และ Password ได้ในไฟล์ server.js (จุดที่ระบุไว้ในโค้ด)
 
-playbackRtspUrl สำหรับ Playback
+หากภาพกลับหัว สามารถเพิ่ม '-vf': 'vflip' ใน ffmpegOptions ของไฟล์ server.js
 
-รหัสผ่านในส่วนของ onvif.OnvifDevice
+⚠️ Important Note
+เครื่อง Server ต้องเปิดไว้ตลอดเวลา (ห้ามปิดเครื่อง)
 
-พอวางเสร็จ ให้กด Save จากนั้นทำการ **Commit และ Push โค้ดทั้งหมดขึ้น GitHub** ให้เรียบร้อยด้วยคำสั่ง:
-```bash
-git add .
-git commit -m "docs: update README for server deployment instructions"
-git push origin main
+ทุกครั้งที่รัน Ngrok ใหม่ ลิงก์ Forwarding จะเปลี่ยนเสมอ ต้องใช้ลิงก์ใหม่ที่แสดงใน Terminal เท่านั้น
