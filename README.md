@@ -20,6 +20,15 @@ npm install
 
 node server.js
 
+⚙️ การตั้งค่าเพิ่มเติม (Configuration)
+หากมีการเปลี่ยนตัวกล้อง IP Camera หรือเปลี่ยนรหัสผ่าน ให้เข้าไปแก้ไขค่าในไฟล์ server.js:
+
+rtspUrl สำหรับ Live View
+
+playbackRtspUrl สำหรับ Playback
+
+รหัสผ่านในส่วนของ onvif.OnvifDevice
+
 พอวางเสร็จ ให้กด Save จากนั้นทำการ **Commit และ Push โค้ดทั้งหมดขึ้น GitHub** ให้เรียบร้อยด้วยคำสั่ง:
 ```bash
 git add .
