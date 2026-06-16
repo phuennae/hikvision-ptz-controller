@@ -83,7 +83,15 @@ app.post('/api/playback', (req, res) => {
       name: 'HikvisionPlayback',
       streamUrl: playbackRtspUrl,
       wsPort: 9998, 
-      ffmpegOptions: ffmpegOptions
+      ffmpegOptions: {
+        '-rtsp_transport': 'tcp',
+        '-stats': '', 
+        '-r': 20, 
+        '-q:v': 3,
+        '-nostdin': '',
+        '-loglevel': 'error',
+        //'-vf': 'vflip' // 👈 เพิ่มบรรทัดนี้เพื่อกลับหัวภาพในแนวตั้ง
+      }
     });
 
     return res.json({ success: true, wsPort: 9998 });
