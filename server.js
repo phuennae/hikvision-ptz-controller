@@ -110,6 +110,25 @@ app.post('/api/playback', (req, res) => {
   }
 });
 
-app.listen(port, () => {
-  console.log(`🌐 Server is running at http://localhost:${port}`);
+// --- ระบบ Proxy สำหรับมัดรวมสัญญาณวิดีโอ (ลิงก์เดียวจบ) ---
+const { createProxyMiddleware } = require('http-proxy-middleware');
+
+const liveProxy = createProxyMiddleware({ target: 'http://127.0.0.1:9999', ws: true, changeOrigin: true });
+const playbackProxy = createProxyMiddleware({ target: 'http://127.0.0.1:9998', ws: true, changeOrigin: true });
+
+app.use('/ws-live', liveProxy);
+app.use('/ws-playback', playbackProxy);
+
+// สั่งรันเซิร์ฟเวอร์และจับสัญญาณ WebSocket มาเข้า Proxy
+const server = app.listen(3000, () => {
+    console.log('CCTV Web Server running on port 3000');
+});
+
+// โค้ดส่วนนี้คือการเปิดประตู VIP ให้วิดีโอสตรีมมิ่งวิ่งผ่านได้
+server.on('upgrade', (req, socket, head) => {
+    if (req.url.startsWith('/ws-live')) {
+        liveProxy.upgrade(req, socket, head);
+    } else if (req.url.startsWith('/ws-playback')) {
+        playbackProxy.upgrade(req, socket, head);
+    }
 });

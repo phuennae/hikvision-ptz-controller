@@ -8,8 +8,6 @@
     <style>
         body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; background-color: #f4f7f6; margin: 0; padding-top: 20px; }
         .dashboard { background: white; padding: 20px; border-radius: 15px; box-shadow: 0 5px 15px rgba(0,0,0,0.1); text-align: center; }
-        /* กรอบสำหรับแสดงวิดีโอ */
-        #video-canvas { width: 640px; height: 360px; background-color: #000; border-radius: 8px; margin-bottom: 20px; display: block; }
         
         .d-pad { display: grid; grid-template-columns: repeat(3, 60px); grid-template-rows: repeat(3, 60px); gap: 10px; justify-content: center; margin: 0 auto; }
         .btn { border: 2px solid #007bff; background: white; font-size: 24px; border-radius: 10px; cursor: pointer; color: #007bff; transition: 0.1s; user-select: none; }
@@ -22,6 +20,7 @@
         .btn.down { grid-column: 2; grid-row: 3; }
         #status { color: #666; font-size: 14px; margin-top: 15px; }
 
+        /* กรอบสำหรับแสดงวิดีโอ */
         #video-canvas { 
             width: 640px; 
             height: 360px; 
@@ -91,13 +90,13 @@
     </div>
 
     <script>
-        // โค้ดสำหรับรับสตรีมภาพมาวาดลงบน Canvas
+        // --- ส่วนที่ 1: ตั้งค่าและเชื่อมต่อสตรีมภาพสด (Live View) แบบลิงก์เดียว ---
         var canvas = document.getElementById('video-canvas');
-        // เชื่อมต่อไปยัง WebSocket พอร์ต 9999 ที่เราตั้งไว้ใน Backend
-        var url = 'ws://' + document.location.hostname + ':9999/'; 
+        const wsProtocolLive = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        var url = wsProtocolLive + '//' + location.host + '/ws-live';
         var player = new JSMpeg.Player(url, { canvas: canvas, autoplay: true });
 
-        // ฟังก์ชันสั่ง PTZ
+        // --- ส่วนที่ 2: ฟังก์ชันสั่งกล้อง PTZ ---
         function sendCommand(cmd) {
             document.getElementById('status').innerText = 'สถานะ: ' + cmd.toUpperCase();
             fetch('/api/ptz', {
@@ -108,205 +107,166 @@
         }
 
         // --- เพิ่มระบบควบคุมผ่าน Keyboard ---
-
-        // ตัวแปรสำหรับเช็คสถานะว่าตอนนี้กำลังกดปุ่มค้างอยู่หรือไม่ (ป้องกันไม่ให้เว็บส่งคำสั่งรัวเกินไป)
         let isKeyPressed = false;
 
-        // 1. ตรวจจับตอนกดปุ่มคีย์บอร์ดลงไป (KeyDown)
         window.addEventListener('keydown', function(event) {
-            // 🛑 เพิ่มโค้ดตรงนี้: ถ้าปุ่มที่กดคือลูกศร ให้ "ยกเลิก" การเลื่อนหน้าจอของเบราว์เซอร์ทันที
             if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
-            event.preventDefault();
-        }
+                event.preventDefault(); // เบรกหน้าจอไม่ให้เลื่อน
+            }
+            if (isKeyPressed) return;
 
-        // ถ้ากำลังกดปุ่มค้างอยู่แล้ว ให้ข้ามไปเลย ไม่ต้องส่งคำสั่งซ้ำ
-        if (isKeyPressed) return;
-
-        switch(event.key) {
-            case 'ArrowUp':
-                isKeyPressed = true;
-                sendCommand('up');
-                break;
-            case 'ArrowDown':
-                isKeyPressed = true;
-                sendCommand('down');
-                break;
-            case 'ArrowLeft':
-                isKeyPressed = true;
-                sendCommand('left');
-                break;
-            case 'ArrowRight':
-                isKeyPressed = true;
-                sendCommand('right');
-                break;
-        }
-    });
-
-        // 2. ตรวจจับตอนปล่อยนิ้วออกจากปุ่มคีย์บอร์ด (KeyUp)
-        window.addEventListener('keyup', function(event) {
-            // เช็คว่าปุ่มที่ปล่อย คือปุ่มลูกศรทิศทางหรือไม่
-            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
-                isKeyPressed = false; // รีเซ็ตสถานะตัวแปรค้าง
-                sendCommand('stop');   // สั่งให้กล้องหยุดหมุนทันทีเมื่อปล่อยปุ่ม
+            switch(event.key) {
+                case 'ArrowUp': isKeyPressed = true; sendCommand('up'); break;
+                case 'ArrowDown': isKeyPressed = true; sendCommand('down'); break;
+                case 'ArrowLeft': isKeyPressed = true; sendCommand('left'); break;
+                case 'ArrowRight': isKeyPressed = true; sendCommand('right'); break;
             }
         });
 
-        // --- ระบบควบคุม Playback & Timeline แบบอัจฉริยะ ---
-let playbackPlayer = null;
-let playbackTimer = null;
+        window.addEventListener('keyup', function(event) {
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
+                isKeyPressed = false; 
+                sendCommand('stop');   
+            }
+        });
 
-// เก็บสถานะเวลาและฟีเจอร์หลัก
-let originStartTime = null;
-let originEndTime = null;
-let currentPositionSeconds = 0;
-let totalDurationSeconds = 0;
-let currentSpeed = 1;
-let isPlaying = false;
+        // --- ส่วนที่ 3: ระบบควบคุม Playback & Timeline ---
+        let playbackPlayer = null;
+        let playbackTimer = null;
 
-// ฟังก์ชันเริ่มต้นเมื่อกดค้นหาครั้งแรก
-function initPlayback() {
-    const startVal = document.getElementById('playback-start').value;
-    const endVal = document.getElementById('playback-end').value;
+        let originStartTime = null;
+        let originEndTime = null;
+        let currentPositionSeconds = 0;
+        let totalDurationSeconds = 0;
+        let currentSpeed = 1;
+        let isPlaying = false;
 
-    if (!startVal || !endVal) {
-        alert('กรุณาเลือกช่วงเวลาเริ่มต้นและสิ้นสุดก่อนครับ');
-        return;
-    }
+        function initPlayback() {
+            const startVal = document.getElementById('playback-start').value;
+            const endVal = document.getElementById('playback-end').value;
 
-    originStartTime = new Date(startVal);
-    originEndTime = new Date(endVal);
-    
-    // คำนวณความยาววิดีโอทั้งหมดเป็นวินาที
-    totalDurationSeconds = Math.floor((originEndTime - originStartTime) / 1000);
-    
-    if (totalDurationSeconds <= 0) {
-        alert('เวลาสิ้นสุดต้องมากกว่าเวลาเริ่มต้นนะครับ');
-        return;
-    }
+            if (!startVal || !endVal) {
+                alert('กรุณาเลือกช่วงเวลาเริ่มต้นและสิ้นสุดก่อนครับ');
+                return;
+            }
 
-    // เซ็ตค่าเริ่มต้นให้แทบเลื่อน
-    currentPositionSeconds = 0;
-    document.getElementById('playback-slider').max = totalDurationSeconds;
-    document.getElementById('playback-slider').value = 0;
-    document.getElementById('playback-speed').value = "1";
-    currentSpeed = 1;
+            originStartTime = new Date(startVal);
+            originEndTime = new Date(endVal);
+            
+            totalDurationSeconds = Math.floor((originEndTime - originStartTime) / 1000);
+            
+            if (totalDurationSeconds <= 0) {
+                alert('เวลาสิ้นสุดต้องมากกว่าเวลาเริ่มต้นนะครับ');
+                return;
+            }
 
-    // เริ่มดึงสตรีมภาพจากจุดเริ่มต้น
-    startStreamAtPosition();
-}
+            currentPositionSeconds = 0;
+            document.getElementById('playback-slider').max = totalDurationSeconds;
+            document.getElementById('playback-slider').value = 0;
+            document.getElementById('playback-speed').value = "1";
+            currentSpeed = 1;
 
-// ฟังก์ชันสั่ง Backend ให้เปิดสตรีมตามตำแหน่งวินาที และความเร็วที่กำหนด
-function startStreamAtPosition() {
-    const statusTxt = document.getElementById('playback-status');
-    clearInterval(playbackTimer); // หยุดตัวนับเวลาเก่าก่อน
-
-    // คำนวณหา Timestamp ใหม่ที่จะส่งไปให้กล้อง โดยบวกวินาทีปัจจุบันเข้าไป
-    const targetStartTime = new Date(originStartTime.getTime() + (currentPositionSeconds * 1000));
-    
-    const startTimeISO = targetStartTime.toISOString();
-    const endTimeISO = originEndTime.toISOString();
-
-    statusTxt.innerText = `🔍 กำลังโหลดวิดีโอ ณ จุดเวลาเลื่อน (ความเร็ว ${currentSpeed}x)...`;
-
-    fetch('/api/playback', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ startTime: startTimeISO, endTime: endTimeISO, speed: currentSpeed })
-    })
-    .then(res => res.json())
-    .then(data => {
-        if (data.success) {
-            statusTxt.innerText = '✅ กำลังเล่นภาพย้อนหลัง...';
-            isPlaying = true;
-            document.getElementById('btn-play-pause').innerText = '⏸️ Pause';
-
-            // โหลด JSMpeg ฉายภาพลง Canvas
-            if (playbackPlayer) playbackPlayer.destroy();
-            const wsUrl = 'ws://' + document.location.hostname + ':' + data.wsPort + '/';
-            const canvas = document.getElementById('playback-canvas');
-            playbackPlayer = new JSMpeg.Player(wsUrl, { canvas: canvas, autoplay: true });
-
-            // เริ่มรันตัวนับเวลาจำลองเพื่อเลื่อนสไลเดอร์ตามสไตล์ YouTube
-            runTimelineTimer();
-        } else {
-            statusTxt.innerText = '❌ ' + (data.error || 'เกิดข้อผิดพลาด');
+            startStreamAtPosition();
         }
-    }).catch(err => console.error(err));
-}
 
-// ตัวนับเวลาขยับแทบเลื่อน (Timeline) ตามเข็มนาฬิกาและความเร็วสตรีม
-function runTimelineTimer() {
-    playbackTimer = setInterval(() => {
-        if (isPlaying && currentPositionSeconds < totalDurationSeconds) {
-            // บวกเวลาเพิ่มเข้าไปตามความเร็วของการเร่ง (ถ้า speed=2 ก็บวกทีละ 2 วินาที)
-            currentPositionSeconds += currentSpeed; 
-            if (currentPositionSeconds > totalDurationSeconds) currentPositionSeconds = totalDurationSeconds;
+        function startStreamAtPosition() {
+            const statusTxt = document.getElementById('playback-status');
+            clearInterval(playbackTimer); 
 
-            // อัปเดตตำแหน่งปุ่มเลื่อนบนหน้าเว็บ
-            document.getElementById('playback-slider').value = currentPositionSeconds;
+            const targetStartTime = new Date(originStartTime.getTime() + (currentPositionSeconds * 1000));
+            const startTimeISO = targetStartTime.toISOString();
+            const endTimeISO = originEndTime.toISOString();
+
+            statusTxt.innerText = `🔍 กำลังโหลดวิดีโอ ณ จุดเวลาเลื่อน (ความเร็ว ${currentSpeed}x)...`;
+
+            fetch('/api/playback', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ startTime: startTimeISO, endTime: endTimeISO, speed: currentSpeed })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    statusTxt.innerText = '✅ กำลังเล่นภาพย้อนหลัง...';
+                    isPlaying = true;
+                    document.getElementById('btn-play-pause').innerText = '⏸️ Pause';
+
+                    if (playbackPlayer) playbackPlayer.destroy();
+                    
+                    // เชื่อมต่อไปยังสตรีมภาพย้อนหลัง (Playback) แบบลิงก์เดียว
+                    const wsProtocolPlayback = location.protocol === 'https:' ? 'wss:' : 'ws:';
+                    const wsUrl = wsProtocolPlayback + '//' + location.host + '/ws-playback';
+                    const canvas = document.getElementById('playback-canvas');
+                    playbackPlayer = new JSMpeg.Player(wsUrl, { canvas: canvas, autoplay: true });
+
+                    runTimelineTimer();
+                } else {
+                    statusTxt.innerText = '❌ ' + (data.error || 'เกิดข้อผิดพลาด');
+                }
+            }).catch(err => console.error(err));
+        }
+
+        function runTimelineTimer() {
+            playbackTimer = setInterval(() => {
+                if (isPlaying && currentPositionSeconds < totalDurationSeconds) {
+                    currentPositionSeconds += currentSpeed; 
+                    if (currentPositionSeconds > totalDurationSeconds) currentPositionSeconds = totalDurationSeconds;
+
+                    document.getElementById('playback-slider').value = currentPositionSeconds;
+                    updateTimeDisplay();
+                } else if (currentPositionSeconds >= totalDurationSeconds) {
+                    clearInterval(playbackTimer);
+                    document.getElementById('playback-status').innerText = '🏁 เล่นจบช่วงเวลาที่เลือกแล้ว';
+                }
+            }, 1000);
+        }
+
+        function updateTimeDisplay() {
+            const format = (sec) => {
+                const h = Math.floor(sec / 3600).toString().padStart(2, '0');
+                const m = Math.floor((sec % 3600) / 60).toString().padStart(2, '0');
+                const s = (sec % 60).toString().padStart(2, '0');
+                return `${h}:${m}:${s}`;
+            };
+            document.getElementById('playback-time-display').innerText = `${format(currentPositionSeconds)} / ${format(totalDurationSeconds)}`;
+        }
+
+        function onSliderScrub(value) {
+            currentPositionSeconds = parseInt(value);
             updateTimeDisplay();
-        } else if (currentPositionSeconds >= totalDurationSeconds) {
-            clearInterval(playbackTimer);
-            document.getElementById('playback-status').innerText = '🏁 เล่นจบช่วงเวลาที่เลือกแล้ว';
+            startStreamAtPosition();
         }
-    }, 1000);
-}
 
-// ฟังก์ชันแปลงวินาทีเป็นตัวหนังสือแสดงเวลา HH:MM:SS
-function updateTimeDisplay() {
-    const format = (sec) => {
-        const h = Math.floor(sec / 3600).toString().padStart(2, '0');
-        const m = Math.floor((sec % 3600) / 60).toString().padStart(2, '0');
-        const s = (sec % 60).toString().padStart(2, '0');
-        return `${h}:${m}:${s}`;
-    };
-    document.getElementById('playback-time-display').innerText = `${format(currentPositionSeconds)} / ${format(totalDurationSeconds)}`;
-}
+        function togglePlayPause() {
+            const btn = document.getElementById('btn-play-pause');
+            if (isPlaying) {
+                if (playbackPlayer) playbackPlayer.pause();
+                isPlaying = false;
+                btn.innerText = '▶️ Play';
+                document.getElementById('playback-status').innerText = '⏸️ หยุดชั่วคราว';
+            } else {
+                if (playbackPlayer) playbackPlayer.play();
+                isPlaying = true;
+                btn.innerText = '⏸️ Pause';
+                document.getElementById('playback-status').innerText = '✅ กำลังเล่นภาพย้อนหลัง...';
+            }
+        }
 
-// 🎚️ ระบบลากแทบเลื่อนเวลา (Scrubbing) แบบ YouTube
-function onSliderScrub(value) {
-    currentPositionSeconds = parseInt(value);
-    updateTimeDisplay();
-    // สั่งยิงข้อมูลดึงไฟล์ใหม่จากจุดที่ผู้ใช้เลือกปล่อยเมาส์ทันที
-    startStreamAtPosition();
-}
+        function changeSpeed(value) {
+            currentSpeed = parseInt(value);
+            startStreamAtPosition();
+        }
 
-// ⏸️ ระบบกดปุ่ม Play / Pause 
-function togglePlayPause() {
-    const btn = document.getElementById('btn-play-pause');
-    if (isPlaying) {
-        // ถ้าเล่นอยู่ให้กดหยุดชั่วคราว
-        if (playbackPlayer) playbackPlayer.pause();
-        isPlaying = false;
-        btn.innerText = '▶️ Play';
-        document.getElementById('playback-status').innerText = '⏸️ หยุดชั่วคราว';
-    } else {
-        // ถ้าหยุดอยู่ให้เล่นต่อ
-        if (playbackPlayer) playbackPlayer.play();
-        isPlaying = true;
-        btn.innerText = '⏸️ Pause';
-        document.getElementById('playback-status').innerText = '✅ กำลังเล่นภาพย้อนหลัง...';
-    }
-}
-
-// ⚡ ระบบเปลี่ยนความเร็ววิดีโอ (1x, 2x, 4x)
-function changeSpeed(value) {
-    currentSpeed = parseInt(value);
-    // ทำการรีเซ็ตสตรีมใหม่ที่จุดเดิมแต่เร่งความเร็วเพิ่มขึ้นตามคำสั่งกล้อง
-    startStreamAtPosition();
-}
-
-// 🔲 ระบบขยายภาพเต็มจอ (Fullscreen API)
-function openFullscreen(canvasId) {
-    const elem = document.getElementById(canvasId);
-    if (elem.requestFullscreen) {
-        elem.requestFullscreen();
-    } else if (elem.webkitRequestFullscreen) { /* รองรับ Safari */
-        elem.webkitRequestFullscreen();
-    } else if (elem.msRequestFullscreen) { /* รองรับ IE11/Edge รุ่นเก่า */
-        elem.msRequestFullscreen();
-    }
-}
+        function openFullscreen(canvasId) {
+            const elem = document.getElementById(canvasId);
+            if (elem.requestFullscreen) {
+                elem.requestFullscreen();
+            } else if (elem.webkitRequestFullscreen) { 
+                elem.webkitRequestFullscreen();
+            } else if (elem.msRequestFullscreen) { 
+                elem.msRequestFullscreen();
+            }
+        }
     </script>
 </body>
 </html>
