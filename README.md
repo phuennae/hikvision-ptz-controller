@@ -19,16 +19,14 @@
 ```bash
 npm install
 
-### 2. รันระบบผ่าน PM2
-```bash
+2. รันระบบผ่าน PM2
 pm2 start server.js --name hikvision-web
 pm2 save
 
-### 3. เปิดช่องทางเข้าถึงจากภายนอก (Ngrok)
-```bash
+3. เปิดช่องทางเข้าถึงจากภายนอก (Ngrok)
 .\ngrok.exe http 3000
 
-### Requirements
+Requirements
 Node.js: v18 หรือสูงกว่า
 
 FFmpeg: ต้องติดตั้งและตั้งค่า Environment Variable ให้เรียบร้อย
