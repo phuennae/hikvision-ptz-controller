@@ -55,6 +55,61 @@ stream = new Stream({
   }
 });
 
+// ตัวแปรสำหรับเก็บสถานะสตรีมย้อนหลัง
+let playbackStream = null;
+
+// --- API สำหรับค้นหาและดึงลิงก์วิดีโอย้อนหลัง (รองรับการเร่งความเร็ว) ---
+app.post('/api/playback', (req, res) => {
+  // รับค่า startTime, endTime และ speed (ถ้าไม่ส่งมาจะให้เป็น 1 คือความเร็วปกติ)
+  const { startTime, endTime, speed } = req.body; 
+  const playbackSpeed = speed || 1;
+
+  if (!startTime || !endTime) {
+    return res.status(400).json({ error: 'กรุณาส่งข้อมูลเวลาให้ครบถ้วน' });
+  }
+
+  try {
+    const formatHikvisionTime = (isoTime) => {
+        return isoTime.split('.')[0].replace(/[-:]/g, '') + 'Z';
+    };
+
+    const hikStart = formatHikvisionTime(startTime);
+    const hikEnd = formatHikvisionTime(endTime);
+
+    // ใส่พารามิเตอร์ &scale=${playbackSpeed} เพื่อเร่งความเร็วในระดับกล้อง (เช่น scale=2, scale=4)
+    const playbackRtspUrl = `rtsp://admin:phuenpa2546@192.168.1.64:554/Streaming/tracks/102?starttime=${hikStart}&endtime=${hikEnd}&scale=${playbackSpeed}`;
+    console.log(`🔗 [Playback] Speed: ${playbackSpeed}x | URL:`, playbackRtspUrl);
+
+    // 1. ถ้ามีสตรีมย้อนหลังอันเก่าเปิดค้างอยู่ ให้ทำลายทิ้งก่อนเพื่อเปลี่ยนสตรีม
+    if (playbackStream) {
+      playbackStream.stop();
+      playbackStream = null;
+    }
+
+    // 2. สั่งเปิดสตรีมใหม่ตามเงื่อนไขที่ส่งมา (พอร์ต 9998)
+    playbackStream = new Stream({
+      name: 'HikvisionPlayback',
+      streamUrl: playbackRtspUrl,
+      wsPort: 9998, 
+      ffmpegOptions: {
+        '-rtsp_transport': 'tcp',
+        '-stats': '', 
+        '-r': 20, 
+        '-q:v': 3 
+      }
+    });
+
+    return res.json({ 
+      success: true, 
+      wsPort: 9998
+    });
+
+  } catch (err) {
+    console.error('Playback Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.listen(port, () => {
   console.log(`🌐 Server is running at http://localhost:${port}`);
 });

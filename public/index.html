@@ -28,8 +28,7 @@
             background-color: #000; 
             border-radius: 8px; 
             margin-bottom: 20px; 
-            display: block; 
-            transform: rotate(180deg); /* เพิ่มบรรทัดนี้เพื่อกลับหัววิดีโอ */
+            display: block;
         }
     </style>
 </head>
@@ -47,6 +46,39 @@
             <button class="btn down" onmousedown="sendCommand('down')" onmouseup="sendCommand('stop')">⬇️</button>
         </div>
         <p id="status">ระบบพร้อมใช้งาน</p>
+    </div>
+
+    <div class="dashboard" style="margin-top: 20px;">
+        <h2>⏳ ดูภาพย้อนหลัง (Playback จาก SD Card)</h2>
+        
+        <div style="margin-bottom: 15px;">
+            <label>เริ่มต้น: </label>
+            <input type="datetime-local" id="playback-start" style="padding: 5px; border-radius: 5px; border: 1px solid #ccc;">
+            <label style="margin-left: 10px;">สิ้นสุด: </label>
+            <input type="datetime-local" id="playback-end" style="padding: 5px; border-radius: 5px; border: 1px solid #ccc;">
+            <button onclick="initPlayback()" style="margin-left: 10px; padding: 6px 15px; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">🔍 ค้นหาไฟล์</button>
+        </div>
+
+        <canvas id="playback-canvas" style="width: 640px; height: 360px; background-color: #000; border-radius: 8px; display: block; margin: 0 auto;"></canvas>
+        
+        <div style="width: 640px; margin: 15px auto 0 auto; text-align: left;">
+            <input type="range" id="playback-slider" min="0" max="100" value="0" onchange="onSliderScrub(this.value)" style="width: 100%; cursor: pointer; margin-bottom: 10px;">
+            
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <button id="btn-play-pause" onclick="togglePlayPause()" style="padding: 6px 12px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; margin-right: 10px;">⏸️ Pause</button>
+                    
+                    <select id="playback-speed" onchange="changeSpeed(this.value)" style="padding: 5px; border-radius: 5px;">
+                        <option value="1">ความเร็ว 1x</option>
+                        <option value="2">ความเร็ว 2x</option>
+                        <option value="4">ความเร็ว 4x</option>
+                    </select>
+                </div>
+                <span id="playback-time-display" style="font-family: monospace; font-size: 14px; color: #333;">00:00:00 / 00:00:00</span>
+            </div>
+        </div>
+
+        <p id="playback-status" style="color: #666; font-size: 14px; margin-top: 10px;">สถานะ: เลือกเวลาแล้วกดค้นหา</p>
     </div>
 
     <script>
@@ -96,14 +128,159 @@
             }
         });
 
-// 2. ตรวจจับตอนปล่อยนิ้วออกจากปุ่มคีย์บอร์ด (KeyUp)
-window.addEventListener('keyup', function(event) {
-    // เช็คว่าปุ่มที่ปล่อย คือปุ่มลูกศรทิศทางหรือไม่
-    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
-        isKeyPressed = false; // รีเซ็ตสถานะตัวแปรค้าง
-        sendCommand('stop');   // สั่งให้กล้องหยุดหมุนทันทีเมื่อปล่อยปุ่ม
+        // 2. ตรวจจับตอนปล่อยนิ้วออกจากปุ่มคีย์บอร์ด (KeyUp)
+        window.addEventListener('keyup', function(event) {
+            // เช็คว่าปุ่มที่ปล่อย คือปุ่มลูกศรทิศทางหรือไม่
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
+                isKeyPressed = false; // รีเซ็ตสถานะตัวแปรค้าง
+                sendCommand('stop');   // สั่งให้กล้องหยุดหมุนทันทีเมื่อปล่อยปุ่ม
+            }
+        });
+
+        // --- ระบบควบคุม Playback & Timeline แบบอัจฉริยะ ---
+let playbackPlayer = null;
+let playbackTimer = null;
+
+// เก็บสถานะเวลาและฟีเจอร์หลัก
+let originStartTime = null;
+let originEndTime = null;
+let currentPositionSeconds = 0;
+let totalDurationSeconds = 0;
+let currentSpeed = 1;
+let isPlaying = false;
+
+// ฟังก์ชันเริ่มต้นเมื่อกดค้นหาครั้งแรก
+function initPlayback() {
+    const startVal = document.getElementById('playback-start').value;
+    const endVal = document.getElementById('playback-end').value;
+
+    if (!startVal || !endVal) {
+        alert('กรุณาเลือกช่วงเวลาเริ่มต้นและสิ้นสุดก่อนครับ');
+        return;
     }
-});
+
+    originStartTime = new Date(startVal);
+    originEndTime = new Date(endVal);
+    
+    // คำนวณความยาววิดีโอทั้งหมดเป็นวินาที
+    totalDurationSeconds = Math.floor((originEndTime - originStartTime) / 1000);
+    
+    if (totalDurationSeconds <= 0) {
+        alert('เวลาสิ้นสุดต้องมากกว่าเวลาเริ่มต้นนะครับ');
+        return;
+    }
+
+    // เซ็ตค่าเริ่มต้นให้แทบเลื่อน
+    currentPositionSeconds = 0;
+    document.getElementById('playback-slider').max = totalDurationSeconds;
+    document.getElementById('playback-slider').value = 0;
+    document.getElementById('playback-speed').value = "1";
+    currentSpeed = 1;
+
+    // เริ่มดึงสตรีมภาพจากจุดเริ่มต้น
+    startStreamAtPosition();
+}
+
+// ฟังก์ชันสั่ง Backend ให้เปิดสตรีมตามตำแหน่งวินาที และความเร็วที่กำหนด
+function startStreamAtPosition() {
+    const statusTxt = document.getElementById('playback-status');
+    clearInterval(playbackTimer); // หยุดตัวนับเวลาเก่าก่อน
+
+    // คำนวณหา Timestamp ใหม่ที่จะส่งไปให้กล้อง โดยบวกวินาทีปัจจุบันเข้าไป
+    const targetStartTime = new Date(originStartTime.getTime() + (currentPositionSeconds * 1000));
+    
+    const startTimeISO = targetStartTime.toISOString();
+    const endTimeISO = originEndTime.toISOString();
+
+    statusTxt.innerText = `🔍 กำลังโหลดวิดีโอ ณ จุดเวลาเลื่อน (ความเร็ว ${currentSpeed}x)...`;
+
+    fetch('/api/playback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ startTime: startTimeISO, endTime: endTimeISO, speed: currentSpeed })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            statusTxt.innerText = '✅ กำลังเล่นภาพย้อนหลัง...';
+            isPlaying = true;
+            document.getElementById('btn-play-pause').innerText = '⏸️ Pause';
+
+            // โหลด JSMpeg ฉายภาพลง Canvas
+            if (playbackPlayer) playbackPlayer.destroy();
+            const wsUrl = 'ws://' + document.location.hostname + ':' + data.wsPort + '/';
+            const canvas = document.getElementById('playback-canvas');
+            playbackPlayer = new JSMpeg.Player(wsUrl, { canvas: canvas, autoplay: true });
+
+            // เริ่มรันตัวนับเวลาจำลองเพื่อเลื่อนสไลเดอร์ตามสไตล์ YouTube
+            runTimelineTimer();
+        } else {
+            statusTxt.innerText = '❌ ' + (data.error || 'เกิดข้อผิดพลาด');
+        }
+    }).catch(err => console.error(err));
+}
+
+// ตัวนับเวลาขยับแทบเลื่อน (Timeline) ตามเข็มนาฬิกาและความเร็วสตรีม
+function runTimelineTimer() {
+    playbackTimer = setInterval(() => {
+        if (isPlaying && currentPositionSeconds < totalDurationSeconds) {
+            // บวกเวลาเพิ่มเข้าไปตามความเร็วของการเร่ง (ถ้า speed=2 ก็บวกทีละ 2 วินาที)
+            currentPositionSeconds += currentSpeed; 
+            if (currentPositionSeconds > totalDurationSeconds) currentPositionSeconds = totalDurationSeconds;
+
+            // อัปเดตตำแหน่งปุ่มเลื่อนบนหน้าเว็บ
+            document.getElementById('playback-slider').value = currentPositionSeconds;
+            updateTimeDisplay();
+        } else if (currentPositionSeconds >= totalDurationSeconds) {
+            clearInterval(playbackTimer);
+            document.getElementById('playback-status').innerText = '🏁 เล่นจบช่วงเวลาที่เลือกแล้ว';
+        }
+    }, 1000);
+}
+
+// ฟังก์ชันแปลงวินาทีเป็นตัวหนังสือแสดงเวลา HH:MM:SS
+function updateTimeDisplay() {
+    const format = (sec) => {
+        const h = Math.floor(sec / 3600).toString().padStart(2, '0');
+        const m = Math.floor((sec % 3600) / 60).toString().padStart(2, '0');
+        const s = (sec % 60).toString().padStart(2, '0');
+        return `${h}:${m}:${s}`;
+    };
+    document.getElementById('playback-time-display').innerText = `${format(currentPositionSeconds)} / ${format(totalDurationSeconds)}`;
+}
+
+// 🎚️ ระบบลากแทบเลื่อนเวลา (Scrubbing) แบบ YouTube
+function onSliderScrub(value) {
+    currentPositionSeconds = parseInt(value);
+    updateTimeDisplay();
+    // สั่งยิงข้อมูลดึงไฟล์ใหม่จากจุดที่ผู้ใช้เลือกปล่อยเมาส์ทันที
+    startStreamAtPosition();
+}
+
+// ⏸️ ระบบกดปุ่ม Play / Pause 
+function togglePlayPause() {
+    const btn = document.getElementById('btn-play-pause');
+    if (isPlaying) {
+        // ถ้าเล่นอยู่ให้กดหยุดชั่วคราว
+        if (playbackPlayer) playbackPlayer.pause();
+        isPlaying = false;
+        btn.innerText = '▶️ Play';
+        document.getElementById('playback-status').innerText = '⏸️ หยุดชั่วคราว';
+    } else {
+        // ถ้าหยุดอยู่ให้เล่นต่อ
+        if (playbackPlayer) playbackPlayer.play();
+        isPlaying = true;
+        btn.innerText = '⏸️ Pause';
+        document.getElementById('playback-status').innerText = '✅ กำลังเล่นภาพย้อนหลัง...';
+    }
+}
+
+// ⚡ ระบบเปลี่ยนความเร็ววิดีโอ (1x, 2x, 4x)
+function changeSpeed(value) {
+    currentSpeed = parseInt(value);
+    // ทำการรีเซ็ตสตรีมใหม่ที่จุดเดิมแต่เร่งความเร็วเพิ่มขึ้นตามคำสั่งกล้อง
+    startStreamAtPosition();
+}
     </script>
 </body>
 </html>
