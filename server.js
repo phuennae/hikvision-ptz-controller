@@ -1,7 +1,8 @@
 const express = require('express');
 const onvif = require('node-onvif');
 const path = require('path');
-const Stream = require('node-rtsp-stream'); // นำเข้าไลบรารีสตรีมมิ่ง
+const Stream = require('node-rtsp-stream');
+const { createProxyMiddleware } = require('http-proxy-middleware');
 
 const app = express();
 const port = 3000;
@@ -13,7 +14,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 let device = new onvif.OnvifDevice({
   xaddr: 'http://192.168.1.64:80/onvif/device_service',
   user: 'admin',
-  pass: 'devphuenpa2546' // <--- เปลี่ยนรหัสผ่านตรงนี้ (จุดที่ 1)
+  pass: 'devphuenpa2546'
 });
 
 device.init().then(() => {
@@ -39,96 +40,70 @@ app.post('/api/ptz', (req, res) => {
   device.ptzMove(ptzParams).then(() => res.json({ status: `กำลังหมุน ${command}` })).catch(err => res.status(500).json({ error: err.message }));
 });
 
-// --- 2. การตั้งค่าสตรีมมิ่ง (Live View) ---
-// ใช้ Sub-Stream (Channels/102) ของกล้อง เพื่อให้ได้ความละเอียด 640x480/640x360 ซึ่งลื่นไหลและเหมาะกับเว็บ 
-const rtspUrl = 'rtsp://admin:phuenpa2546@192.168.1.64:554/Streaming/Channels/102'; // <--- เปลี่ยนรหัสผ่านตรงนี้ (จุดที่ 2)
+// --- 2. การตั้งค่าสตรีมมิ่ง (Live View & Playback) ---
+const rtspBaseUrl = 'rtsp://admin:phuenpa2546@192.168.1.64:554';
 
-stream = new Stream({
-  name: 'HikvisionStream',
-  streamUrl: rtspUrl,
-  wsPort: 9999, 
-  ffmpegOptions: {
-    '-rtsp_transport': 'tcp', // 👈 เพิ่มบรรทัดนี้! บังคับใช้ TCP เพื่อความเสถียร
+// ตั้งค่า FFmpeg ให้รันแบบ Headless (ไม่ใช้หน้าจอ) เพื่อรองรับ PM2
+const ffmpegOptions = {
+    '-rtsp_transport': 'tcp',
     '-stats': '', 
-    '-r': 20, // 👈 ปรับให้ตรงกับ Video Frame Rate ในหน้าตั้งค่ากล้อง (20 fps)
-    '-q:v': 3 
-  }
+    '-r': 20, 
+    '-q:v': 3,
+    '-nostdin': '',    // ป้องกัน FFmpeg แฮงค์เมื่อรันบน PM2
+    '-loglevel': 'error' // ลดขยะใน Log
+};
+
+let liveStream = new Stream({
+  name: 'HikvisionStream',
+  streamUrl: `${rtspBaseUrl}/Streaming/Channels/102`,
+  wsPort: 9999, 
+  ffmpegOptions: ffmpegOptions
 });
 
-// ตัวแปรสำหรับเก็บสถานะสตรีมย้อนหลัง
 let playbackStream = null;
 
-// --- API สำหรับค้นหาและดึงลิงก์วิดีโอย้อนหลัง (รองรับการเร่งความเร็ว) ---
+// --- 3. API สำหรับค้นหาและดึงลิงก์วิดีโอย้อนหลัง ---
 app.post('/api/playback', (req, res) => {
-  // รับค่า startTime, endTime และ speed (ถ้าไม่ส่งมาจะให้เป็น 1 คือความเร็วปกติ)
   const { startTime, endTime, speed } = req.body; 
   const playbackSpeed = speed || 1;
 
-  if (!startTime || !endTime) {
-    return res.status(400).json({ error: 'กรุณาส่งข้อมูลเวลาให้ครบถ้วน' });
-  }
+  if (!startTime || !endTime) return res.status(400).json({ error: 'กรุณาส่งข้อมูลเวลา' });
 
   try {
-    const formatHikvisionTime = (isoTime) => {
-        return isoTime.split('.')[0].replace(/[-:]/g, '') + 'Z';
-    };
+    const hikStart = startTime.split('.')[0].replace(/[-:]/g, '') + 'Z';
+    const hikEnd = endTime.split('.')[0].replace(/[-:]/g, '') + 'Z';
+    const playbackRtspUrl = `${rtspBaseUrl}/Streaming/tracks/102?starttime=${hikStart}&endtime=${hikEnd}&scale=${playbackSpeed}`;
 
-    const hikStart = formatHikvisionTime(startTime);
-    const hikEnd = formatHikvisionTime(endTime);
-
-    // ใส่พารามิเตอร์ &scale=${playbackSpeed} เพื่อเร่งความเร็วในระดับกล้อง (เช่น scale=2, scale=4)
-    const playbackRtspUrl = `rtsp://admin:phuenpa2546@192.168.1.64:554/Streaming/tracks/102?starttime=${hikStart}&endtime=${hikEnd}&scale=${playbackSpeed}`;
-    console.log(`🔗 [Playback] Speed: ${playbackSpeed}x | URL:`, playbackRtspUrl);
-
-    // 1. ถ้ามีสตรีมย้อนหลังอันเก่าเปิดค้างอยู่ ให้ทำลายทิ้งก่อนเพื่อเปลี่ยนสตรีม
     if (playbackStream) {
       playbackStream.stop();
       playbackStream = null;
     }
 
-    // 2. สั่งเปิดสตรีมใหม่ตามเงื่อนไขที่ส่งมา (พอร์ต 9998)
     playbackStream = new Stream({
       name: 'HikvisionPlayback',
       streamUrl: playbackRtspUrl,
       wsPort: 9998, 
-      ffmpegOptions: {
-        '-rtsp_transport': 'tcp',
-        '-stats': '', 
-        '-r': 20, 
-        '-q:v': 3 
-      }
+      ffmpegOptions: ffmpegOptions
     });
 
-    return res.json({ 
-      success: true, 
-      wsPort: 9998
-    });
-
+    return res.json({ success: true, wsPort: 9998 });
   } catch (err) {
-    console.error('Playback Error:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// --- ระบบ Proxy สำหรับมัดรวมสัญญาณวิดีโอ (ลิงก์เดียวจบ) ---
-const { createProxyMiddleware } = require('http-proxy-middleware');
-
+// --- 4. ระบบ Proxy สำหรับมัดรวมสัญญาณ (ลิงก์เดียวจบ) ---
 const liveProxy = createProxyMiddleware({ target: 'http://127.0.0.1:9999', ws: true, changeOrigin: true });
 const playbackProxy = createProxyMiddleware({ target: 'http://127.0.0.1:9998', ws: true, changeOrigin: true });
 
 app.use('/ws-live', liveProxy);
 app.use('/ws-playback', playbackProxy);
 
-// สั่งรันเซิร์ฟเวอร์และจับสัญญาณ WebSocket มาเข้า Proxy
-const server = app.listen(3000, () => {
-    console.log('CCTV Web Server running on port 3000');
+const server = app.listen(port, () => {
+    console.log(`CCTV Web Server running on port ${port}`);
 });
 
-// โค้ดส่วนนี้คือการเปิดประตู VIP ให้วิดีโอสตรีมมิ่งวิ่งผ่านได้
 server.on('upgrade', (req, socket, head) => {
-    if (req.url.startsWith('/ws-live')) {
-        liveProxy.upgrade(req, socket, head);
-    } else if (req.url.startsWith('/ws-playback')) {
-        playbackProxy.upgrade(req, socket, head);
-    }
+    if (req.url.startsWith('/ws-live')) liveProxy.upgrade(req, socket, head);
+    else if (req.url.startsWith('/ws-playback')) playbackProxy.upgrade(req, socket, head);
 });
