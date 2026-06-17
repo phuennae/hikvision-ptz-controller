@@ -3,94 +3,455 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CCTV MONITORING</title>
+    <title>CCTV MONITORING SYSTEM</title>
     <script src="https://cdn.jsdelivr.net/gh/phoboslab/jsmpeg@master/jsmpeg.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
     <style>
-        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; background-color: #f4f7f6; margin: 0; padding-top: 20px; }
-        .dashboard { background: white; padding: 20px; border-radius: 15px; box-shadow: 0 5px 15px rgba(0,0,0,0.1); text-align: center; }
+        :root {
+            --primary: #4f46e5;
+            --primary-hover: #4338ca;
+            --bg-main: #f8fafc;
+            --bg-card: #ffffff;
+            --text-main: #0f172a;
+            --text-sub: #64748b;
+            --border: #e2e8f0;
+            --danger: #ef4444;
+            --danger-hover: #dc2626;
+            --success: #10b981;
+        }
+
+        body { 
+            font-family: '-apple-system', BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; 
+            background-color: var(--bg-main); 
+            color: var(--text-main);
+            margin: 0; 
+            padding: 0; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+        }
         
-        .d-pad { display: grid; grid-template-columns: repeat(3, 60px); grid-template-rows: repeat(3, 60px); gap: 10px; justify-content: center; margin: 0 auto; }
-        .btn { border: 2px solid #007bff; background: white; font-size: 24px; border-radius: 10px; cursor: pointer; color: #007bff; transition: 0.1s; user-select: none; }
-        .btn:active { background: #007bff; color: white; transform: scale(0.95); }
+        /* --- 🌐 Minimal Navbar --- */
+        .navbar { 
+            width: 100%; 
+            background-color: var(--bg-card); 
+            display: flex; 
+            justify-content: center; 
+            border-bottom: 1px solid var(--border);
+            position: sticky; 
+            top: 0; 
+            z-index: 1000; 
+        }
+        .nav-btn { 
+            background: none; 
+            border: none; 
+            color: var(--text-sub); 
+            padding: 18px 24px; 
+            font-size: 15px; 
+            font-weight: 500; 
+            cursor: pointer; 
+            transition: all 0.2s ease; 
+            position: relative;
+        }
+        .nav-btn:hover { 
+            color: var(--text-main); 
+        }
+        .nav-btn.active { 
+            color: var(--primary); 
+            font-weight: 600;
+        }
+        .nav-btn.active::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 24px;
+            right: 24px;
+            height: 3px;
+            background-color: var(--primary);
+            border-radius: 3px 3px 0 0;
+        }
+
+        /* --- 📦 Container & Layout --- */
+        .container { 
+            margin-top: 40px; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            width: 100%; 
+            padding: 0 20px;
+            box-sizing: border-box;
+        }
+        .tab-content { 
+            display: none; 
+            width: 100%; 
+            max-width: 680px; 
+            animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .tab-content.active { 
+            display: block; 
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .dashboard { 
+            background: var(--bg-card); 
+            padding: 30px; 
+            border-radius: 16px; 
+            border: 1px solid var(--border);
+            text-align: center; 
+            margin-bottom: 40px; 
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        h2 {
+            font-size: 20px;
+            font-weight: 600;
+            margin-top: 0;
+            margin-bottom: 24px;
+            color: var(--text-main);
+            letter-spacing: -0.5px;
+        }
+
+        /* --- 📺 Video Frame & Controls --- */
+        .video-wrapper {
+            position: relative;
+            margin-bottom: 24px;
+        }
+        
+        #video-canvas, #playback-canvas { 
+            width: 100%;
+            max-width: 640px;
+            height: auto; 
+            aspect-ratio: 16 / 9;
+            background-color: #000; 
+            border-radius: 12px; 
+            display: block;
+            margin: 0 auto;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        }
+
+        .fullscreen-btn {
+            padding: 6px 12px; 
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-sub);
+            cursor: pointer; 
+            border-radius: 6px; 
+            border: 1px solid var(--border); 
+            background: var(--bg-card);
+            transition: all 0.2s;
+            margin-bottom: 8px;
+        }
+        .fullscreen-btn:hover {
+            color: var(--text-main);
+            border-color: var(--text-sub);
+        }
+        
+        /* --- 🎮 Modern Minimal D-Pad --- */
+        .d-pad { 
+            display: grid; 
+            grid-template-columns: repeat(3, 56px); 
+            grid-template-rows: repeat(3, 56px); 
+            gap: 12px; 
+            justify-content: center; 
+            margin: 24px auto 0 auto; 
+        }
+        .btn { 
+            border: 1px solid var(--border); 
+            background: var(--bg-card); 
+            font-size: 20px; 
+            border-radius: 50%; 
+            cursor: pointer; 
+            color: var(--text-main); 
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s ease; 
+            user-select: none; 
+            -webkit-user-select: none;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+        }
+        .btn:hover {
+            border-color: var(--text-sub);
+            background: var(--bg-main);
+        }
+        .btn:active { 
+            background: var(--border); 
+            transform: scale(0.92); 
+        }
         .btn.up { grid-column: 2; grid-row: 1; }
         .btn.left { grid-column: 1; grid-row: 2; }
-        .btn.stop { grid-column: 2; grid-row: 2; font-size: 14px; font-weight: bold; background: #ff4d4f; color: white; border: none; }
-        .btn.stop:active { background: #d9363e; }
+        .btn.stop { 
+            grid-column: 2; 
+            grid-row: 2; 
+            font-size: 11px; 
+            font-weight: 700; 
+            background: #fef2f2; 
+            color: var(--danger); 
+            border: 1px solid #fee2e2; 
+            border-radius: 12px;
+        }
+        .btn.stop:hover { background: #fee2e2; }
+        .btn.stop:active { background: #fca5a5; color: white; }
         .btn.right { grid-column: 3; grid-row: 2; }
         .btn.down { grid-column: 2; grid-row: 3; }
-        #status { color: #666; font-size: 14px; margin-top: 15px; }
+        
+        .status-text { 
+            color: var(--text-sub); 
+            font-size: 13px; 
+            margin-top: 20px; 
+            font-weight: 500;
+        }
 
-        /* กรอบสำหรับแสดงวิดีโอ */
-        #video-canvas { 
-            width: 640px; 
-            height: 360px; 
-            background-color: #000; 
+        /* --- ⏳ Playback Controls & Inputs --- */
+        .search-box {
+            margin-bottom: 24px; 
+            display: flex; 
+            gap: 12px; 
+            justify-content: center; 
+            align-items: center; 
+            flex-wrap: wrap;
+        }
+        .search-box fieldset {
+            border: none;
+            padding: 0;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .search-box label {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-sub);
+        }
+        .search-box input[type="text"] {
+            padding: 8px 12px; 
             border-radius: 8px; 
-            margin-bottom: 20px; 
-            display: block;
+            border: 1px solid var(--border);
+            font-family: inherit;
+            color: var(--text-main);
+            background-color: var(--bg-main);
+            outline: none;
+            transition: border 0.2s;
+            cursor: pointer;
+            width: 160px;
+        }
+        .search-box input[type="text"]:focus {
+            border-color: var(--primary);
+        }
+        
+        .primary-btn {
+            padding: 9px 20px; 
+            background: var(--primary); 
+            color: white; 
+            border: none; 
+            border-radius: 8px; 
+            cursor: pointer; 
+            font-size: 14px;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+        .primary-btn:hover { background: var(--primary-hover); }
+
+        /* Custom Slider */
+        input[type="range"] {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 6px;
+            background: var(--border);
+            border-radius: 3px;
+            outline: none;
+            margin-bottom: 20px;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: var(--primary);
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+        }
+
+        .controls-row {
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+        
+        .action-btn {
+            padding: 8px 16px; 
+            background: var(--bg-main); 
+            color: var(--text-main); 
+            border: 1px solid var(--border); 
+            border-radius: 8px; 
+            cursor: pointer; 
+            font-size: 13px;
+            font-weight: 600; 
+            margin-right: 8px;
+            transition: all 0.2s;
+        }
+        .action-btn:hover {
+            background: var(--border);
+        }
+
+        select {
+            padding: 7px 12px; 
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--bg-card);
+            color: var(--text-main);
+            font-size: 13px;
+            outline: none;
+            cursor: pointer;
+        }
+
+        .time-display {
+            font-family: monospace; 
+            font-size: 13px; 
+            color: var(--text-sub); 
+            font-weight: 600;
+        }
+
+        footer {
+            margin-top: auto;
+            padding: 24px;
+            font-size: 12px;
+            color: var(--text-sub);
+        }
+        
+        /* ปรับแต่ง Flatpickr ให้ดูสไตล์เดียวกัน */
+        .flatpickr-calendar {
+            box-shadow: 0 10px 25px rgba(0,0,0,0.08) !important;
+            border: 1px solid var(--border) !important;
+            border-radius: 12px !important;
+        }
+        .flatpickr-day.selected {
+            background: var(--primary) !important;
+            border-color: var(--primary) !important;
         }
     </style>
 </head>
 <body>
 
-    <div class="dashboard">
-        <h2>📷 CCTV MONITORING</h2>
-
-        <div style="width: 640px; margin: 0 auto 5px auto; text-align: right;">
-            <button onclick="openFullscreen('video-canvas')" style="padding: 5px 10px; cursor: pointer; border-radius: 5px; border: 1px solid #ccc; background: #eee;">🔲 ขยายเต็มจอ</button>
-        </div>
-
-        <canvas id="video-canvas"></canvas>
-        
-        <div class="d-pad">
-            <button class="btn up" onmousedown="sendCommand('up')" onmouseup="sendCommand('stop')">⬆️</button>
-            <button class="btn left" onmousedown="sendCommand('left')" onmouseup="sendCommand('stop')">⬅️</button>
-            <button class="btn stop" onclick="sendCommand('stop')">STOP</button>
-            <button class="btn right" onmousedown="sendCommand('right')" onmouseup="sendCommand('stop')">➡️</button>
-            <button class="btn down" onmousedown="sendCommand('down')" onmouseup="sendCommand('stop')">⬇️</button>
-        </div>
-        <p id="status">ระบบพร้อมใช้งาน</p>
+    <div class="navbar">
+        <button class="nav-btn active" onclick="switchTab(event, 'monitor-tab')">📹 Live Monitor</button>
+        <button class="nav-btn" onclick="switchTab(event, 'playback-tab')">⏳ Playback ย้อนหลัง</button>
     </div>
 
-    <div class="dashboard" style="margin-top: 20px;">
-        <h2>⏳ ดูภาพย้อนหลัง (Playback จาก SD Card)</h2>
+    <div class="container">
         
-        <div style="margin-bottom: 15px;">
-            <label>เริ่มต้น: </label>
-            <input type="datetime-local" id="playback-start" style="padding: 5px; border-radius: 5px; border: 1px solid #ccc;">
-            <label style="margin-left: 10px;">สิ้นสุด: </label>
-            <input type="datetime-local" id="playback-end" style="padding: 5px; border-radius: 5px; border: 1px solid #ccc;">
-            <button onclick="initPlayback()" style="margin-left: 10px; padding: 6px 15px; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">🔍 ค้นหาไฟล์</button>
-        </div>
-
-        <div style="width: 640px; margin: 0 auto 5px auto; text-align: right;">
-            <button onclick="openFullscreen('playback-canvas')" style="padding: 5px 10px; cursor: pointer; border-radius: 5px; border: 1px solid #ccc; background: #eee;">🔲 ขยายเต็มจอ</button>
-        </div>
-
-        <canvas id="playback-canvas" style="width: 640px; height: 360px; background-color: #000; border-radius: 8px; display: block; margin: 0 auto;"></canvas>
-        
-        <div style="width: 640px; margin: 15px auto 0 auto; text-align: left;">
-            <input type="range" id="playback-slider" min="0" max="100" value="0" onchange="onSliderScrub(this.value)" style="width: 100%; cursor: pointer; margin-bottom: 10px;">
-            
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div>
-                    <button id="btn-play-pause" onclick="togglePlayPause()" style="padding: 6px 12px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; margin-right: 10px;">⏸️ Pause</button>
-                    
-                    <select id="playback-speed" onchange="changeSpeed(this.value)" style="padding: 5px; border-radius: 5px;">
-                        <option value="1">ความเร็ว 1x</option>
-                        <option value="2">ความเร็ว 2x</option>
-                        <option value="4">ความเร็ว 4x</option>
-                    </select>
+        <div id="monitor-tab" class="tab-content active">
+            <div class="dashboard">
+                <h2>กล้องวงจรปิดเรียลไทม์</h2>
+                <div style="width: 100%; max-width: 640px; margin: 0 auto; text-align: right;">
+                    <button class="fullscreen-btn" onclick="openFullscreen('video-canvas')">🔲 ขยายเต็มจอ</button>
                 </div>
-                <span id="playback-time-display" style="font-family: monospace; font-size: 14px; color: #333;">00:00:00 / 00:00:00</span>
+                <div class="video-wrapper">
+                    <canvas id="video-canvas"></canvas>
+                </div>
+                
+                <div class="d-pad">
+                    <button class="btn up" onmousedown="sendCommand('up')" onmouseup="sendCommand('stop')" ontouchstart="sendCommand('up')" ontouchend="sendCommand('stop')">⬆️</button>
+                    <button class="btn left" onmousedown="sendCommand('left')" onmouseup="sendCommand('stop')" ontouchstart="sendCommand('left')" ontouchend="sendCommand('stop')">⬅️</button>
+                    <button class="btn stop" onclick="sendCommand('stop')">STOP</button>
+                    <button class="btn right" onmousedown="sendCommand('right')" onmouseup="sendCommand('stop')" ontouchstart="sendCommand('right')" ontouchend="sendCommand('stop')">➡️</button>
+                    <button class="btn down" onmousedown="sendCommand('down')" onmouseup="sendCommand('stop')" ontouchstart="sendCommand('down')" ontouchend="sendCommand('stop')">⬇️</button>
+                </div>
+                <p id="status" class="status-text">ระบบพร้อมใช้งาน</p>
             </div>
         </div>
 
-        <p id="playback-status" style="color: #666; font-size: 14px; margin-top: 10px;">สถานะ: เลือกเวลาแล้วกดค้นหา</p>
+        <div id="playback-tab" class="tab-content">
+            <div class="dashboard">
+                <h2>ค้นหาภาพย้อนหลัง</h2>
+                
+                <div class="search-box">
+                    <fieldset>
+                        <label>เริ่มต้น</label>
+                        <input type="text" id="playback-start" placeholder="เลือกเวลาเริ่มต้น">
+                    </fieldset>
+                    <fieldset>
+                        <label>สิ้นสุด</label>
+                        <input type="text" id="playback-end" placeholder="เลือกเวลาสิ้นสุด">
+                    </fieldset>
+                    <button class="primary-btn" onclick="initPlayback()">🔍 ค้นหา</button>
+                </div>
+
+                <div style="width: 100%; max-width: 640px; margin: 0 auto; text-align: right;">
+                    <button class="fullscreen-btn" onclick="openFullscreen('playback-canvas')">🔲 ขยายเต็มจอ</button>
+                </div>
+
+                <div class="video-wrapper">
+                    <canvas id="playback-canvas"></canvas>
+                </div>
+                
+                <div style="width: 100%; max-width: 640px; margin: 0 auto; text-align: left;">
+                    <input type="range" id="playback-slider" min="0" max="100" value="0" oninput="updateTimeDisplayOnly(this.value)" onchange="onSliderScrub(this.value)">
+                    
+                    <div class="controls-row">
+                        <div>
+                            <button id="btn-play-pause" class="action-btn" onclick="togglePlayPause()">⏸️ Pause</button>
+                            
+                            <select id="playback-speed" onchange="changeSpeed(this.value)">
+                                <option value="1">1x Speed</option>
+                                <option value="2">2x Speed</option>
+                                <option value="4">4x Speed</option>
+                            </select>
+                        </div>
+                        <span id="playback-time-display" class="time-display">00:00:00 / 00:00:00</span>
+                    </div>
+                </div>
+
+                <p id="playback-status" class="status-text">สถานะ: เลือกเวลาแล้วกดค้นหา</p>
+            </div>
+        </div>
+
     </div>
 
+    <footer>
+        Developed by Phuenpa Champasri
+    </footer>
+
     <script>
-        // --- ส่วนที่ 1: ตั้งค่าและเชื่อมต่อสตรีมภาพสด (Live View) แบบลิงก์เดียว ---
+        // --- 📅 เปิดใช้งาน Flatpickr แบบ 24 ชั่วโมง (ป้องกันบัค AM/PM บนอุปกรณ์พกพา) ---
+        const config24h = {
+            enableTime: true,
+            time_24hr: true,
+            dateFormat: "Y-m-d H:i",
+            locale: {
+                firstDayOfWeek: 1
+            }
+        };
+        flatpickr("#playback-start", config24h);
+        flatpickr("#playback-end", config24h);
+
+        // --- 🌐 ฟังก์ชันสำหรับสลับหน้าจอ (Tab Switching) ---
+        function switchTab(evt, tabId) {
+            var tabContents = document.getElementsByClassName("tab-content");
+            for (var i = 0; i < tabContents.length; i++) {
+                tabContents[i].classList.remove("active");
+            }
+            var navBtns = document.getElementsByClassName("nav-btn");
+            for (var i = 0; i < navBtns.length; i++) {
+                navBtns[i].classList.remove("active");
+            }
+            document.getElementById(tabId).classList.add("active");
+            evt.currentTarget.classList.add("active");
+        }
+
+        // --- ส่วนที่ 1: ตั้งค่าและเชื่อมต่อสตรีมภาพสด (Live View) ---
         var canvas = document.getElementById('video-canvas');
         const wsProtocolLive = location.protocol === 'https:' ? 'wss:' : 'ws:';
         var url = wsProtocolLive + '//' + location.host + '/ws-live';
@@ -106,20 +467,22 @@
             }).catch(e => console.error(e));
         }
 
-        // --- เพิ่มระบบควบคุมผ่าน Keyboard ---
+        // --- ระบบควบคุมผ่าน Keyboard ---
         let isKeyPressed = false;
 
         window.addEventListener('keydown', function(event) {
-            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
-                event.preventDefault(); // เบรกหน้าจอไม่ให้เลื่อน
-            }
-            if (isKeyPressed) return;
+            if (document.getElementById('monitor-tab').classList.contains('active')) {
+                if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
+                    event.preventDefault();
+                }
+                if (isKeyPressed) return;
 
-            switch(event.key) {
-                case 'ArrowUp': isKeyPressed = true; sendCommand('up'); break;
-                case 'ArrowDown': isKeyPressed = true; sendCommand('down'); break;
-                case 'ArrowLeft': isKeyPressed = true; sendCommand('left'); break;
-                case 'ArrowRight': isKeyPressed = true; sendCommand('right'); break;
+                switch(event.key) {
+                    case 'ArrowUp': isKeyPressed = true; sendCommand('up'); break;
+                    case 'ArrowDown': isKeyPressed = true; sendCommand('down'); break;
+                    case 'ArrowLeft': isKeyPressed = true; sendCommand('left'); break;
+                    case 'ArrowRight': isKeyPressed = true; sendCommand('right'); break;
+                }
             }
         });
 
@@ -140,6 +503,7 @@
         let totalDurationSeconds = 0;
         let currentSpeed = 1;
         let isPlaying = false;
+        let isUserScrubbing = false;
 
         function initPlayback() {
             const startVal = document.getElementById('playback-start').value;
@@ -177,7 +541,7 @@
             const startTimeISO = targetStartTime.toISOString();
             const endTimeISO = originEndTime.toISOString();
 
-            statusTxt.innerText = `🔍 กำลังโหลดวิดีโอ ณ จุดเวลาเลื่อน (ความเร็ว ${currentSpeed}x)...`;
+            statusTxt.innerText = `🔍 กำลังโหลดวิดีโอ (ความเร็ว ${currentSpeed}x)...`;
 
             fetch('/api/playback', {
                 method: 'POST',
@@ -193,7 +557,6 @@
 
                     if (playbackPlayer) playbackPlayer.destroy();
                     
-                    // เชื่อมต่อไปยังสตรีมภาพย้อนหลัง (Playback) แบบลิงก์เดียว
                     const wsProtocolPlayback = location.protocol === 'https:' ? 'wss:' : 'ws:';
                     const wsUrl = wsProtocolPlayback + '//' + location.host + '/ws-playback';
                     const canvas = document.getElementById('playback-canvas');
@@ -212,10 +575,15 @@
                     currentPositionSeconds += currentSpeed; 
                     if (currentPositionSeconds > totalDurationSeconds) currentPositionSeconds = totalDurationSeconds;
 
-                    document.getElementById('playback-slider').value = currentPositionSeconds;
-                    updateTimeDisplay();
+                    // เลื่อนสไลเดอร์และตัวเลขเวลาแบบ Real-time ตามความคืบหน้าวิดีโอ
+                    if (!isUserScrubbing) {
+                        document.getElementById('playback-slider').value = currentPositionSeconds;
+                        updateTimeDisplay();
+                    }
                 } else if (currentPositionSeconds >= totalDurationSeconds) {
                     clearInterval(playbackTimer);
+                    isPlaying = false;
+                    document.getElementById('btn-play-pause').innerText = '▶️ Play';
                     document.getElementById('playback-status').innerText = '🏁 เล่นจบช่วงเวลาที่เลือกแล้ว';
                 }
             }, 1000);
@@ -231,7 +599,20 @@
             document.getElementById('playback-time-display').innerText = `${format(currentPositionSeconds)} / ${format(totalDurationSeconds)}`;
         }
 
+        // อัปเดตตัวเลขเวลาแบบ Real-time ทันทีในขณะที่ยูสเซอร์กำลังลากแถบสไลเดอร์
+        function updateTimeDisplayOnly(value) {
+            isUserScrubbing = true;
+            const format = (sec) => {
+                const h = Math.floor(sec / 3600).toString().padStart(2, '0');
+                const m = Math.floor((sec % 3600) / 60).toString().padStart(2, '0');
+                const s = (sec % 60).toString().padStart(2, '0');
+                return `${h}:${m}:${s}`;
+            };
+            document.getElementById('playback-time-display').innerText = `${format(parseInt(value))} / ${format(totalDurationSeconds)}`;
+        }
+
         function onSliderScrub(value) {
+            isUserScrubbing = false;
             currentPositionSeconds = parseInt(value);
             updateTimeDisplay();
             startStreamAtPosition();
@@ -244,11 +625,13 @@
                 isPlaying = false;
                 btn.innerText = '▶️ Play';
                 document.getElementById('playback-status').innerText = '⏸️ หยุดชั่วคราว';
+                clearInterval(playbackTimer);
             } else {
                 if (playbackPlayer) playbackPlayer.play();
                 isPlaying = true;
                 btn.innerText = '⏸️ Pause';
                 document.getElementById('playback-status').innerText = '✅ กำลังเล่นภาพย้อนหลัง...';
+                runTimelineTimer();
             }
         }
 
