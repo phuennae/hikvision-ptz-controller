@@ -387,6 +387,7 @@
                         <input type="text" id="playback-end" placeholder="เลือกเวลาสิ้นสุด">
                     </fieldset>
                     <button class="primary-btn" onclick="initPlayback()">🔍 ค้นหา</button>
+                    <button class="action-btn" style="background:#ff4d4f; color:white; border:none;" onclick="stopPlaybackStream()">⏹️ ปิดภาพ</button>
                 </div>
 
                 <div style="width: 100%; max-width: 640px; margin: 0 auto; text-align: right;">
@@ -439,6 +440,11 @@
 
         // --- 🌐 ฟังก์ชันสำหรับสลับหน้าจอ (Tab Switching) ---
         function switchTab(evt, tabId) {
+            // เช็คว่าถ้าออกจากหน้า Playback ให้ทำการปิดสตรีมภาพย้อนหลังทิ้งทันที
+            if (document.getElementById('playback-tab').classList.contains('active') && tabId !== 'playback-tab') {
+                stopPlaybackStream();
+            }
+
             var tabContents = document.getElementsByClassName("tab-content");
             for (var i = 0; i < tabContents.length; i++) {
                 tabContents[i].classList.remove("active");
@@ -531,6 +537,36 @@
             currentSpeed = 1;
 
             startStreamAtPosition();
+        }
+
+        // ฟังก์ชันล้างภาพและหยุดสตรีมย้อนหลัง
+        function stopPlaybackStream() {
+            isPlaying = false;
+            clearInterval(playbackTimer);
+            
+            if (playbackPlayer) {
+                playbackPlayer.destroy();
+                playbackPlayer = null;
+            }
+            
+            // รีเซ็ต Canvas โดยการลบอันเก่าทิ้งแล้วโคลนอันใหม่ขึ้นมาแทนที่ (แก้บัค WebGL vs 2D)
+            const oldCanvas = document.getElementById('playback-canvas');
+            const newCanvas = oldCanvas.cloneNode(true);
+            oldCanvas.parentNode.replaceChild(newCanvas, oldCanvas);
+            
+            // --- ส่วนที่เพิ่มเข้ามา: รีเซ็ตเวลาและสไลเดอร์ ---
+            currentPositionSeconds = 0;
+            totalDurationSeconds = 0;
+            
+            const slider = document.getElementById('playback-slider');
+            slider.value = 0;
+            slider.max = 0; // ตั้ง max เป็น 0 ไปก่อนจนกว่าจะกดค้นหาใหม่
+            
+            document.getElementById('playback-time-display').innerText = '00:00:00 / 00:00:00';
+            // ------------------------------------------
+
+            document.getElementById('playback-status').innerText = 'สถานะ: ปิดการเชื่อมต่อแล้ว';
+            document.getElementById('btn-play-pause').innerText = '▶️ Play';
         }
 
         function startStreamAtPosition() {
