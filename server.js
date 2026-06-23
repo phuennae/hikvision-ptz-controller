@@ -35,15 +35,26 @@ app.post('/api/ptz', async (req, res) => {
 });
 
 // --- 2. Live Stream (พอร์ต 9999) ---
-const rtspUrl = 'rtsp://admin:phuenpa2546@192.168.110.64:554/Streaming/Channels/102';
+// 🌟 เปลี่ยนเลขท้ายจาก 102 เป็น 101 เพื่อดึงภาพท่อใหญ่ (Main Stream)
+const rtspUrl = 'rtsp://admin:phuenpa2546@192.168.110.64:554/Streaming/Channels/101';
 
 new Stream({ 
     name: 'Live', 
     streamUrl: rtspUrl, 
     wsPort: 9999, 
     ffmpegOptions: { 
-        '-rtsp_transport': 'tcp', '-err_detect': 'ignore_err', '-fflags': '+genpts+discardcorrupt',
-        '-f': 'mpegts', '-codec:v': 'mpeg1video', '-b:v': '512k', '-r': '20', '-s': '640x360', '-bf': '0', '-nostdin': '' 
+        '-rtsp_transport': 'tcp', 
+        '-err_detect': 'ignore_err', 
+        '-fflags': '+genpts+discardcorrupt',
+        '-f': 'mpegts', 
+        '-codec:v': 'mpeg1video', 
+        // 🌟 ปรับ Bitrate เป็น 1.5 Mbps (จากเดิม 512k)
+        '-b:v': '1500k', 
+        '-r': '20', 
+        // 🌟 ปรับความละเอียดเป็น HD 720p (จากเดิม 640x360)
+        '-s': '1280x720', 
+        '-bf': '0', 
+        '-nostdin': '' 
     } 
 });
 
