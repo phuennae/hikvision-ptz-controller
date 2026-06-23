@@ -10,108 +10,98 @@ const port = 3000;
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// --- 1. การตั้งค่า PTZ ---
-let device = new onvif.OnvifDevice({
-  xaddr: 'http://192.168.1.64:80/onvif/device_service',
-  user: 'admin',
-  pass: 'devphuenpa2546'
+// --- 1. PTZ Setup ---
+let device = new onvif.OnvifDevice({ 
+    xaddr: 'http://192.168.110.64:80/onvif/device_service', 
+    user: 'admin', 
+    pass: 'devphuenpa2546' 
 });
 
-device.init().then(() => {
-  console.log('✅ Camera PTZ Connected!');
-}).catch(err => console.error('❌ PTZ Connection Failed:', err.message));
+function connectPTZ() {
+    device.init().then(() => console.log('✅ PTZ Connected')).catch(() => setTimeout(connectPTZ, 10000));
+}
+connectPTZ();
 
-app.post('/api/ptz', (req, res) => {
-  const { command } = req.body;
-  if (!device.services.ptz) return res.status(500).json({ error: 'PTZ Not Supported' });
-
-  let ptzParams = { speed: { x: 0, y: 0, z: 0 } };
-  switch (command) {
-    case 'left': ptzParams.speed.x = -0.5; break;
-    case 'right': ptzParams.speed.x = 0.5; break;
-    case 'up': ptzParams.speed.y = 0.5; break;
-    case 'down': ptzParams.speed.y = -0.5; break;
-    case 'stop': 
-      device.ptzStop().then(() => res.json({ status: 'หยุด' })).catch(err => res.status(500).json({ error: err.message }));
-      return;
-    default: return res.status(400).json({ error: 'คำสั่งไม่ถูกต้อง' });
-  }
-
-  device.ptzMove(ptzParams).then(() => res.json({ status: `กำลังหมุน ${command}` })).catch(err => res.status(500).json({ error: err.message }));
+app.post('/api/ptz', async (req, res) => {
+    try {
+        const { command } = req.body;
+        if (command === 'stop') await device.ptzStop();
+        else {
+            const speed = { x: command === 'right' ? 0.5 : command === 'left' ? -0.5 : 0, y: command === 'up' ? 0.5 : command === 'down' ? -0.5 : 0, z: 0 };
+            await device.ptzMove({ speed });
+        }
+        res.json({ status: 'ok' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// --- 2. การตั้งค่าสตรีมมิ่ง (Live View & Playback) ---
-const rtspBaseUrl = 'rtsp://admin:phuenpa2546@192.168.1.64:554';
+// --- 2. Live Stream (พอร์ต 9999) ---
+const rtspUrl = 'rtsp://admin:phuenpa2546@192.168.110.64:554/Streaming/Channels/102';
 
-// ตั้งค่า FFmpeg ให้รันแบบ Headless (ไม่ใช้หน้าจอ) เพื่อรองรับ PM2
-const ffmpegOptions = {
-    '-rtsp_transport': 'tcp',
-    '-stats': '', 
-    '-r': 20, 
-    '-q:v': 3,
-    '-nostdin': '',    // ป้องกัน FFmpeg แฮงค์เมื่อรันบน PM2
-    '-loglevel': 'error' // ลดขยะใน Log
-};
-
-let liveStream = new Stream({
-  name: 'HikvisionStream',
-  streamUrl: `${rtspBaseUrl}/Streaming/Channels/102`,
-  wsPort: 9999, 
-  ffmpegOptions: ffmpegOptions
+new Stream({ 
+    name: 'Live', 
+    streamUrl: rtspUrl, 
+    wsPort: 9999, 
+    ffmpegOptions: { 
+        '-rtsp_transport': 'tcp', '-err_detect': 'ignore_err', '-fflags': '+genpts+discardcorrupt',
+        '-f': 'mpegts', '-codec:v': 'mpeg1video', '-b:v': '512k', '-r': '20', '-s': '640x360', '-bf': '0', '-nostdin': '' 
+    } 
 });
 
-let playbackStream = null;
+// --- 3. Playback API (พอร์ต 9998) ---
+let playbackStream = null; // ตัวแปรเก็บสถานะการเล่นย้อนหลัง
 
-// --- 3. API สำหรับค้นหาและดึงลิงก์วิดีโอย้อนหลัง ---
 app.post('/api/playback', (req, res) => {
-  const { startTime, endTime, speed } = req.body; 
-  const playbackSpeed = speed || 1;
+    const { startTime, endTime } = req.body;
+    
+    // แปลงเวลาให้เป็นฟอร์แมตที่กล้อง Hikvision อ่านออก (YYYYMMDDTHHMMSSZ)
+    const formatTime = (iso) => iso.replace(/[-:]/g, '').substring(0, 15) + 'Z';
+    const playbackUrl = `${rtspUrl.replace('Channels/102', 'tracks/102')}?starttime=${formatTime(startTime)}&endtime=${formatTime(endTime)}`;
 
-  if (!startTime || !endTime) return res.status(400).json({ error: 'กรุณาส่งข้อมูลเวลา' });
-
-  try {
-    const hikStart = startTime.split('.')[0].replace(/[-:]/g, '') + 'Z';
-    const hikEnd = endTime.split('.')[0].replace(/[-:]/g, '') + 'Z';
-    const playbackRtspUrl = `${rtspBaseUrl}/Streaming/tracks/102?starttime=${hikStart}&endtime=${hikEnd}&scale=${playbackSpeed}`;
-
+    // ปิดสตรีมย้อนหลังอันเก่าทิ้งก่อน (ถ้ามี)
     if (playbackStream) {
-      playbackStream.stop();
-      playbackStream = null;
+        playbackStream.stop();
+        playbackStream = null;
     }
 
+    // เริ่มสตรีมภาพย้อนหลังอันใหม่
     playbackStream = new Stream({
-      name: 'HikvisionPlayback',
-      streamUrl: playbackRtspUrl,
-      wsPort: 9998, 
-      ffmpegOptions: {
-        '-rtsp_transport': 'tcp',
-        '-stats': '', 
-        '-r': 20, 
-        '-q:v': 3,
-        '-nostdin': '',
-        '-loglevel': 'error',
-        //'-vf': 'vflip' // 👈 เพิ่มบรรทัดนี้เพื่อกลับหัวภาพในแนวตั้ง
-      }
+        name: 'Playback',
+        streamUrl: playbackUrl,
+        wsPort: 9998,
+        ffmpegOptions: { 
+            '-rtsp_transport': 'tcp', '-err_detect': 'ignore_err', '-fflags': '+genpts+discardcorrupt',
+            '-f': 'mpegts', '-codec:v': 'mpeg1video', '-b:v': '512k', '-r': '20', '-s': '640x360', '-bf': '0', '-nostdin': '' 
+        }
     });
 
-    return res.json({ success: true, wsPort: 9998 });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+    res.json({ success: true, url: playbackUrl });
 });
 
-// --- 4. ระบบ Proxy สำหรับมัดรวมสัญญาณ (ลิงก์เดียวจบ) ---
-const liveProxy = createProxyMiddleware({ target: 'http://127.0.0.1:9999', ws: true, changeOrigin: true });
-const playbackProxy = createProxyMiddleware({ target: 'http://127.0.0.1:9998', ws: true, changeOrigin: true });
+// ยิงมาเพื่อปิดการดึงภาพย้อนหลัง คืน CPU ให้ Server
+app.post('/api/stop-playback', (req, res) => {
+    if (playbackStream) {
+        playbackStream.stop();
+        playbackStream = null;
+    }
+    res.json({ success: true });
+});
+
+// --- 4. Proxy (แยกช่องจราจร WebSocket) ---
+const liveProxy = createProxyMiddleware({ target: 'http://127.0.0.1:9999', ws: true });
+const playbackProxy = createProxyMiddleware({ target: 'http://127.0.0.1:9998', ws: true }); // เพิ่มตัวนี้
 
 app.use('/ws-live', liveProxy);
-app.use('/ws-playback', playbackProxy);
+app.use('/ws-playback', playbackProxy); // เพิ่มตัวนี้
 
-const server = app.listen(port, () => {
-    console.log(`CCTV Web Server running on port ${port}`);
-});
+const server = app.listen(port, () => console.log(`🚀 Smart Pole CCTV Server is running on port ${port}`));
 
+// ตัวคัดแยกการเชื่อมต่อ
 server.on('upgrade', (req, socket, head) => {
-    if (req.url.startsWith('/ws-live')) liveProxy.upgrade(req, socket, head);
-    else if (req.url.startsWith('/ws-playback')) playbackProxy.upgrade(req, socket, head);
+    if (req.url.startsWith('/ws-live')) {
+        liveProxy.upgrade(req, socket, head);
+    } else if (req.url.startsWith('/ws-playback')) {
+        playbackProxy.upgrade(req, socket, head);
+    } else {
+        socket.destroy();
+    }
 });

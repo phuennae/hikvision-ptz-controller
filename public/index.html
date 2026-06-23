@@ -499,7 +499,7 @@
         // --- 🌐 ฟังก์ชันสำหรับสลับหน้าจอ (Tab Switching) ---
         function switchTab(evt, tabId) {
             if (document.getElementById('playback-tab').classList.contains('active') && tabId !== 'playback-tab') {
-                stopPlaybackStream();
+                stopPlaybackStream(); // จะทำการปิดการยิงสตรีมด้านหลังถ้ามีการสลับแท็บ
             }
 
             var tabContents = document.getElementsByClassName("tab-content");
@@ -516,9 +516,17 @@
 
         // --- ส่วนที่ 1: ตั้งค่าและเชื่อมต่อสตรีมภาพสด (Live View) ---
         var canvas = document.getElementById('video-canvas');
-        const wsProtocolLive = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        var url = wsProtocolLive + '//' + location.host + '/ws-live';
-        var player = new JSMpeg.Player(url, { canvas: canvas, autoplay: true });
+        var wsProtocolLive = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        var wsUrlLive = wsProtocolLive + '//' + window.location.host + '/ws-live'; // แยกไปช่อง /ws-live
+        
+        var player = new JSMpeg.Player(wsUrlLive, {
+            canvas: canvas,
+            autoplay: true,
+            audio: false,
+            videoBufferSize: 512 * 1024,
+            throttled: false,
+            disableWebAssembly: true 
+        });
 
         // --- ส่วนที่ 2: ฟังก์ชันสั่งกล้อง PTZ ---
         function sendCommand(cmd) {
@@ -580,13 +588,11 @@
             originStartTime = new Date(startVal);
             originEndTime = new Date(endVal);
             
-            // --- 🛑 ส่วนที่เพิ่มเข้ามา: ดักจับเวลาในอนาคต ---
-            const now = new Date(); // ดึงเวลาปัจจุบัน ณ วินาทีที่กดปุ่ม
+            const now = new Date();
             if (originStartTime > now || originEndTime > now) {
                 showToast('ไม่สามารถดูภาพย้อนหลังได้ในช่วงเวลาดังกล่าว', 'error');
-                return; // เบรกการทำงานทันที
+                return;
             }
-            // ---------------------------------------------
             
             totalDurationSeconds = Math.floor((originEndTime - originStartTime) / 1000);
             
@@ -604,10 +610,12 @@
             startStreamAtPosition();
         }
 
-        // ฟังก์ชันล้างภาพและหยุดสตรีมย้อนหลัง (แก้ไขบัคเว็บค้าง พร้อมรีเซ็ตเวลา)
         function stopPlaybackStream() {
             isPlaying = false;
             clearInterval(playbackTimer);
+            
+            // 🌟 แก้ไขตรงนี้: ยิง API ไปสั่งให้ Server หยุดการแปลงไฟล์ย้อนหลัง (คืน CPU ให้ระบบ)
+            fetch('/api/stop-playback', { method: 'POST' }).catch(e => console.error(e));
             
             if (playbackPlayer) {
                 playbackPlayer.destroy();
@@ -654,10 +662,10 @@
 
                     if (playbackPlayer) playbackPlayer.destroy();
                     
-                    const wsProtocolPlayback = location.protocol === 'https:' ? 'wss:' : 'ws:';
-                    const wsUrl = wsProtocolPlayback + '//' + location.host + '/ws-playback';
-                    const canvas = document.getElementById('playback-canvas');
-                    playbackPlayer = new JSMpeg.Player(wsUrl, { canvas: canvas, autoplay: true });
+                    const wsProtocolPlayback = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                    const wsUrlPlayback = wsProtocolPlayback + '//' + window.location.host + '/ws-playback'; // แยกไปช่อง /ws-playback
+                    const canvasPlayback = document.getElementById('playback-canvas');
+                    playbackPlayer = new JSMpeg.Player(wsUrlPlayback, { canvas: canvasPlayback, autoplay: true });
 
                     runTimelineTimer();
                 } else {
