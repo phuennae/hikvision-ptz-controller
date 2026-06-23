@@ -59,29 +59,38 @@ new Stream({
 });
 
 // --- 3. Playback API (พอร์ต 9998) ---
-let playbackStream = null; // ตัวแปรเก็บสถานะการเล่นย้อนหลัง
+let playbackStream = null;
 
 app.post('/api/playback', (req, res) => {
     const { startTime, endTime } = req.body;
     
-    // แปลงเวลาให้เป็นฟอร์แมตที่กล้อง Hikvision อ่านออก (YYYYMMDDTHHMMSSZ)
+    // แปลงเวลาให้เป็นฟอร์แมต (YYYYMMDDTHHMMSSZ)
     const formatTime = (iso) => iso.replace(/[-:]/g, '').substring(0, 15) + 'Z';
-    const playbackUrl = `${rtspUrl.replace('Channels/102', 'tracks/102')}?starttime=${formatTime(startTime)}&endtime=${formatTime(endTime)}`;
+    
+    // 🌟 แก้ไข: เขียน URL แบบระบุเส้นทางตรงๆ ไม่พึ่งพิงการแทนที่คำ
+    // ใช้ tracks/101 สำหรับดึงไฟล์วิดีโอความละเอียดสูงจาก SD Card
+    const playbackUrl = `rtsp://admin:phuenpa2546@192.168.110.64:554/Streaming/tracks/101?starttime=${formatTime(startTime)}&endtime=${formatTime(endTime)}`;
 
-    // ปิดสตรีมย้อนหลังอันเก่าทิ้งก่อน (ถ้ามี)
     if (playbackStream) {
         playbackStream.stop();
         playbackStream = null;
     }
 
-    // เริ่มสตรีมภาพย้อนหลังอันใหม่
     playbackStream = new Stream({
         name: 'Playback',
         streamUrl: playbackUrl,
         wsPort: 9998,
         ffmpegOptions: { 
-            '-rtsp_transport': 'tcp', '-err_detect': 'ignore_err', '-fflags': '+genpts+discardcorrupt',
-            '-f': 'mpegts', '-codec:v': 'mpeg1video', '-b:v': '512k', '-r': '20', '-s': '640x360', '-bf': '0', '-nostdin': '' 
+            '-rtsp_transport': 'tcp', 
+            '-err_detect': 'ignore_err', 
+            '-fflags': '+genpts+discardcorrupt',
+            '-f': 'mpegts', 
+            '-codec:v': 'mpeg1video', 
+            '-b:v': '1500k', 
+            '-s': '1280x720', 
+            '-r': '20', 
+            '-bf': '0', 
+            '-nostdin': '' 
         }
     });
 
