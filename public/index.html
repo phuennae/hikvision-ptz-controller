@@ -562,15 +562,17 @@
         var canvas = document.getElementById('video-canvas');
 
         
-        var wsUrlLive = 'ws://' + window.location.hostname + ':9999'; 
+        // เปลี่ยนจากระบุ port 9999 ให้มาใช้ path /ws-live ผ่านพอร์ต 3000 แทน
+        var protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+        var wsUrlLive = protocol + window.location.host + '/ws-live';
 
-        console.log("กำลังเชื่อมต่อภาพที่: " + wsUrlLive); // ดูใน Console ได้เลยว่าต่อเข้าไหม
+        console.log("กำลังเชื่อมต่อภาพที่: " + wsUrlLive); 
 
         var player = new JSMpeg.Player(wsUrlLive, {
             canvas: canvas,
             autoplay: true,
             audio: false, 
-            videoBufferSize: 1024 * 1024 * 4, // 4MB Buffer
+            videoBufferSize: 1024 * 1024 * 4,
             throttled: false,
             disableWebAssembly: true 
         });
