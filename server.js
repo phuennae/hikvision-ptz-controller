@@ -3,6 +3,8 @@ const onvif = require('node-onvif');
 const path = require('path');
 const Stream = require('node-rtsp-stream');
 const { createProxyMiddleware } = require('http-proxy-middleware');
+const { spawn } = require('child_process');
+const WebSocket = require('ws');
 
 const app = express();
 const port = 3000;
@@ -10,94 +12,96 @@ const port = 3000;
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// --- 1. PTZ Setup ---
-let device = new onvif.OnvifDevice({ 
-    xaddr: 'http://192.168.110.64:80/onvif/device_service', 
-    user: 'admin', 
-    pass: 'devphuenpa2546' 
-});
+// Configuration
+const cameraIP = '192.168.110.64'; 
+const password = 'phuenpa2546';
 
-function connectPTZ() {
-    device.init().then(() => console.log('✅ PTZ Connected')).catch(() => setTimeout(connectPTZ, 10000));
+// --- 1. PTZ Setup ---
+let device = null;
+let isPTZReady = false;
+
+async function connectPTZ() {
+    device = new onvif.OnvifDevice({
+        xaddr: `http://${cameraIP}:80/onvif/device_service`,
+        user: 'admin',
+        pass: password,
+        timeout: 20000 
+    });
+
+    try {
+        await device.init();
+        isPTZReady = true;
+        console.log('✅ PTZ Connected Successfully');
+    } catch (err) {
+        console.error('❌ PTZ Init Error:', err.message);
+        setTimeout(connectPTZ, 10000); 
+    }
 }
 connectPTZ();
 
 app.post('/api/ptz', async (req, res) => {
+    if (!isPTZReady) return res.status(503).json({ error: "PTZ not ready" });
     try {
         const { command } = req.body;
+        const speed = { 
+            x: command === 'right' ? 0.5 : command === 'left' ? -0.5 : 0, 
+            y: command === 'up' ? 0.5 : command === 'down' ? -0.5 : 0, 
+            z: 0 
+        };
         if (command === 'stop') await device.ptzStop();
-        else {
-            const speed = { x: command === 'right' ? 0.5 : command === 'left' ? -0.5 : 0, y: command === 'up' ? 0.5 : command === 'down' ? -0.5 : 0, z: 0 };
-            await device.ptzMove({ speed });
-        }
+        else await device.ptzMove({ speed });
         res.json({ status: 'ok' });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) {
+        res.status(500).json({ error: err.message }); 
+    }
 });
 
-// --- 2. Live Stream (พอร์ต 9999) ---
-// 🌟 เปลี่ยนเลขท้ายจาก 102 เป็น 101 เพื่อดึงภาพท่อใหญ่ (Main Stream)
-const rtspUrl = 'rtsp://admin:phuenpa2546@192.168.110.64:554/Streaming/Channels/101';
-
-new Stream({ 
-    name: 'Live', 
-    streamUrl: rtspUrl, 
-    wsPort: 9999, 
-    ffmpegOptions: { 
-        '-rtsp_transport': 'tcp', 
-        '-err_detect': 'ignore_err', 
-        '-fflags': '+genpts+discardcorrupt',
-        '-f': 'mpegts', 
-        '-codec:v': 'mpeg1video', 
-        // 🌟 ปรับ Bitrate เป็น 1.5 Mbps (จากเดิม 512k)
-        '-b:v': '1500k', 
-        '-r': '20', 
-        // 🌟 ปรับความละเอียดเป็น HD 720p (จากเดิม 640x360)
-        '-s': '1280x720', 
-        '-bf': '0', 
-        '-nostdin': '' 
-    } 
+// --- 2. Live Stream (WebSocket Port 9999) ---
+const wss = new WebSocket.Server({ port: 9999 });
+wss.on('connection', (ws) => {
+    const ffmpeg = spawn('ffmpeg', [
+        '-rtsp_transport', 'tcp',
+        '-i', `rtsp://admin:${password}@${cameraIP}:554/Streaming/Channels/102`,
+        '-f', 'mpegts', '-codec:v', 'mpeg1video', '-an',
+        '-vf', 'scale=640:360', '-b:v', '1000k', '-r', '20', '-bf', '0', '-'
+    ]);
+    ffmpeg.stdout.on('data', (data) => { if (ws.readyState === WebSocket.OPEN) ws.send(data); });
+    ws.on('close', () => { ffmpeg.kill(); });
 });
 
-// --- 3. Playback API (พอร์ต 9998) ---
+// --- 3. Playback API (Port 9998) ---
 let playbackStream = null;
 
 app.post('/api/playback', (req, res) => {
     const { startTime, endTime } = req.body;
-    
-    // แปลงเวลาให้เป็นฟอร์แมต (YYYYMMDDTHHMMSSZ)
-    const formatTime = (iso) => iso.replace(/[-:]/g, '').substring(0, 15) + 'Z';
-    
-    // 🌟 แก้ไข: เขียน URL แบบระบุเส้นทางตรงๆ ไม่พึ่งพิงการแทนที่คำ
-    // ใช้ tracks/101 สำหรับดึงไฟล์วิดีโอความละเอียดสูงจาก SD Card
-    const playbackUrl = `rtsp://admin:phuenpa2546@192.168.110.64:554/Streaming/tracks/101?starttime=${formatTime(startTime)}&endtime=${formatTime(endTime)}`;
+    // แปลงเวลาให้เป็น Format Hikvision: YYYYMMDDTHHMMSSZ
+    const formatTime = (iso) => iso.replace(/[-:]/g, '').split('.')[0] + 'Z';
+    const playbackUrl = `rtsp://admin:${password}@${cameraIP}:554/Streaming/tracks/101?starttime=${formatTime(startTime)}&endtime=${formatTime(endTime)}`;
 
     if (playbackStream) {
         playbackStream.stop();
         playbackStream = null;
     }
 
-    playbackStream = new Stream({
-        name: 'Playback',
-        streamUrl: playbackUrl,
-        wsPort: 9998,
-        ffmpegOptions: { 
-            '-rtsp_transport': 'tcp', 
-            '-err_detect': 'ignore_err', 
-            '-fflags': '+genpts+discardcorrupt',
-            '-f': 'mpegts', 
-            '-codec:v': 'mpeg1video', 
-            '-b:v': '1500k', 
-            '-s': '1280x720', 
-            '-r': '20', 
-            '-bf': '0', 
-            '-nostdin': '' 
-        }
-    });
-
-    res.json({ success: true, url: playbackUrl });
+    try {
+        playbackStream = new Stream({
+            name: 'Playback',
+            streamUrl: playbackUrl,
+            wsPort: 9998,
+            ffmpegOptions: { 
+                '-rtsp_transport': 'tcp',
+                '-codec:v': 'mpeg1video',
+                '-b:v': '1000k',
+                '-r': '20',
+                '-an': '' 
+            }
+        });
+        res.json({ success: true, url: playbackUrl });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
-// ยิงมาเพื่อปิดการดึงภาพย้อนหลัง คืน CPU ให้ Server
 app.post('/api/stop-playback', (req, res) => {
     if (playbackStream) {
         playbackStream.stop();
@@ -106,22 +110,16 @@ app.post('/api/stop-playback', (req, res) => {
     res.json({ success: true });
 });
 
-// --- 4. Proxy (แยกช่องจราจร WebSocket) ---
+// --- 4. Proxy & Server Start ---
 const liveProxy = createProxyMiddleware({ target: 'http://127.0.0.1:9999', ws: true });
-const playbackProxy = createProxyMiddleware({ target: 'http://127.0.0.1:9998', ws: true }); // เพิ่มตัวนี้
+const playbackProxy = createProxyMiddleware({ target: 'http://127.0.0.1:9998', ws: true });
 
 app.use('/ws-live', liveProxy);
-app.use('/ws-playback', playbackProxy); // เพิ่มตัวนี้
+app.use('/ws-playback', playbackProxy);
 
-const server = app.listen(port, () => console.log(`🚀 Smart Pole CCTV Server is running on port ${port}`));
-
-// ตัวคัดแยกการเชื่อมต่อ
+const server = app.listen(port, () => console.log(`🚀 Server running on port ${port}`));
 server.on('upgrade', (req, socket, head) => {
-    if (req.url.startsWith('/ws-live')) {
-        liveProxy.upgrade(req, socket, head);
-    } else if (req.url.startsWith('/ws-playback')) {
-        playbackProxy.upgrade(req, socket, head);
-    } else {
-        socket.destroy();
-    }
+    if (req.url.startsWith('/ws-live')) liveProxy.upgrade(req, socket, head);
+    else if (req.url.startsWith('/ws-playback')) playbackProxy.upgrade(req, socket, head);
+    else socket.destroy();
 });

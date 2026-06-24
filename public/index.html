@@ -401,11 +401,23 @@
                 </div>
                 
                 <div class="d-pad">
-                    <button class="btn up" onmousedown="sendCommand('up')" onmouseup="sendCommand('stop')" ontouchstart="sendCommand('up')" ontouchend="sendCommand('stop')">⬆️</button>
-                    <button class="btn left" onmousedown="sendCommand('left')" onmouseup="sendCommand('stop')" ontouchstart="sendCommand('left')" ontouchend="sendCommand('stop')">⬅️</button>
+                    <button class="btn up" 
+                        onmousedown="startMove('up')" onmouseup="stopMove()" onmouseleave="stopMove()"
+                        ontouchstart="event.preventDefault(); startMove('up')" ontouchend="stopMove()" ontouchcancel="stopMove()">⬆️</button>
+                    
+                    <button class="btn left" 
+                        onmousedown="startMove('left')" onmouseup="stopMove()" onmouseleave="stopMove()"
+                        ontouchstart="event.preventDefault(); startMove('left')" ontouchend="stopMove()" ontouchcancel="stopMove()">⬅️</button>
+                    
                     <button class="btn stop" onclick="sendCommand('stop')">STOP</button>
-                    <button class="btn right" onmousedown="sendCommand('right')" onmouseup="sendCommand('stop')" ontouchstart="sendCommand('right')" ontouchend="sendCommand('stop')">➡️</button>
-                    <button class="btn down" onmousedown="sendCommand('down')" onmouseup="sendCommand('stop')" ontouchstart="sendCommand('down')" ontouchend="sendCommand('stop')">⬇️</button>
+                    
+                    <button class="btn right" 
+                        onmousedown="startMove('right')" onmouseup="stopMove()" onmouseleave="stopMove()"
+                        ontouchstart="event.preventDefault(); startMove('right')" ontouchend="stopMove()" ontouchcancel="stopMove()">➡️</button>
+                    
+                    <button class="btn down" 
+                        onmousedown="startMove('down')" onmouseup="stopMove()" onmouseleave="stopMove()"
+                        ontouchstart="event.preventDefault(); startMove('down')" ontouchend="stopMove()" ontouchcancel="stopMove()">⬇️</button>
                 </div>
                 <p id="status" class="status-text">ระบบพร้อมใช้งาน</p>
             </div>
@@ -466,6 +478,38 @@
     <div id="toast-container" class="toast-container"></div>
 
     <script>
+
+        let moveInterval = null;
+
+        // ฟังก์ชันส่งคำสั่งไปที่ Server
+        function sendCommand(cmd) {
+            fetch('/api/ptz', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ command: cmd })
+            }).catch(e => console.error(e));
+        }
+
+        // เริ่ม Loop ส่งคำสั่งทุก 200ms
+        function startMove(cmd) {
+            // กันพลาด: เคลียร์ของเก่าก่อน
+            clearInterval(moveInterval);
+            
+            // ส่งคำสั่งทันที 1 ครั้ง
+            sendCommand(cmd);
+            
+            // ส่งคำสั่งซ้ำๆ เพื่อให้กล้องหมุนต่อเนื่อง (Keep-alive)
+            moveInterval = setInterval(() => {
+                sendCommand(cmd);
+            }, 200);
+        }
+
+        // หยุดทุกอย่าง
+        function stopMove() {
+            clearInterval(moveInterval); // หยุด Loop
+            sendCommand('stop');         // สั่งกล้องหยุด
+        }
+
         // --- 🍞 ฟังก์ชันแสดง Pop-up แจ้งเตือนแบบ Minimal ---
         function showToast(message, type = 'warning') {
             const container = document.getElementById('toast-container');
@@ -516,14 +560,17 @@
 
         // --- ส่วนที่ 1: ตั้งค่าและเชื่อมต่อสตรีมภาพสด (Live View) ---
         var canvas = document.getElementById('video-canvas');
-        var wsProtocolLive = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        var wsUrlLive = wsProtocolLive + '//' + window.location.host + '/ws-live'; // แยกไปช่อง /ws-live
+
         
+        var wsUrlLive = 'ws://' + window.location.hostname + ':9999'; 
+
+        console.log("กำลังเชื่อมต่อภาพที่: " + wsUrlLive); // ดูใน Console ได้เลยว่าต่อเข้าไหม
+
         var player = new JSMpeg.Player(wsUrlLive, {
             canvas: canvas,
             autoplay: true,
-            audio: false,
-            videoBufferSize: 512 * 1024,
+            audio: false, 
+            videoBufferSize: 1024 * 1024 * 4, // 4MB Buffer
             throttled: false,
             disableWebAssembly: true 
         });
@@ -539,28 +586,45 @@
         }
 
         // --- ระบบควบคุมผ่าน Keyboard ---
-        let isKeyPressed = false;
+        // ตัวแปรสำหรับเก็บว่าปุ่มไหนถูกกดค้างอยู่
+        const heldKeys = new Set();
 
         window.addEventListener('keydown', function(event) {
-            if (document.getElementById('monitor-tab').classList.contains('active')) {
-                if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
-                    event.preventDefault();
-                }
-                if (isKeyPressed) return;
+            // ถ้าคีย์นี้ถูกกดค้างอยู่แล้ว ไม่ต้องทำอะไร (ป้องกันการส่งคำสั่งรัวจนค้าง)
+            if (heldKeys.has(event.key)) return;
+            
+            heldKeys.add(event.key);
 
+            if (document.getElementById('monitor-tab').classList.contains('active')) {
                 switch(event.key) {
-                    case 'ArrowUp': isKeyPressed = true; sendCommand('up'); break;
-                    case 'ArrowDown': isKeyPressed = true; sendCommand('down'); break;
-                    case 'ArrowLeft': isKeyPressed = true; sendCommand('left'); break;
-                    case 'ArrowRight': isKeyPressed = true; sendCommand('right'); break;
+                    case 'ArrowUp': 
+                        event.preventDefault(); 
+                        startMove('up'); 
+                        break;
+                    case 'ArrowDown': 
+                        event.preventDefault(); 
+                        startMove('down'); 
+                        break;
+                    case 'ArrowLeft': 
+                        event.preventDefault(); 
+                        startMove('left'); 
+                        break;
+                    case 'ArrowRight': 
+                        event.preventDefault(); 
+                        startMove('right'); 
+                        break;
                 }
             }
         });
 
         window.addEventListener('keyup', function(event) {
-            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
-                isKeyPressed = false; 
-                sendCommand('stop');   
+            // เมื่อปล่อยปุ่ม ให้ลบออกจาก Set และสั่งหยุด
+            if (heldKeys.has(event.key)) {
+                heldKeys.delete(event.key);
+                // สั่งหยุดเมื่อปล่อยปุ่มลูกศร
+                if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
+                    stopMove();
+                }
             }
         });
 
@@ -614,7 +678,6 @@
             isPlaying = false;
             clearInterval(playbackTimer);
             
-            // 🌟 แก้ไขตรงนี้: ยิง API ไปสั่งให้ Server หยุดการแปลงไฟล์ย้อนหลัง (คืน CPU ให้ระบบ)
             fetch('/api/stop-playback', { method: 'POST' }).catch(e => console.error(e));
             
             if (playbackPlayer) {
@@ -663,9 +726,15 @@
                     if (playbackPlayer) playbackPlayer.destroy();
                     
                     const wsProtocolPlayback = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-                    const wsUrlPlayback = wsProtocolPlayback + '//' + window.location.host + '/ws-playback'; // แยกไปช่อง /ws-playback
+                    const wsUrlPlayback = wsProtocolPlayback + '//' + window.location.host + '/ws-playback';
+
                     const canvasPlayback = document.getElementById('playback-canvas');
-                    playbackPlayer = new JSMpeg.Player(wsUrlPlayback, { canvas: canvasPlayback, autoplay: true });
+                    playbackPlayer = new JSMpeg.Player(wsUrlPlayback, { 
+                        canvas: canvasPlayback, 
+                        autoplay: true,
+                        audio: false, // ปิดเสียงฝั่งเว็บย้ำอีกรอบ
+                        videoBufferSize: 1024 * 1024 * 4 // เพิ่ม Buffer รับภาพ
+                    });
 
                     runTimelineTimer();
                 } else {
